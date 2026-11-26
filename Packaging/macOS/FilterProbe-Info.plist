@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>TunnelGuardFilterProbe</string>
+    <key>CFBundleIdentifier</key>
+    <string>app.tunnelguard.lab.filter</string>
+    <key>CFBundleName</key>
+    <string>TunnelGuard Lab Filter</string>
+    <key>CFBundlePackageType</key>
+    <string>SYSX</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSSystemExtensionUsageDescription</key>
+    <string>Фильтр блокирует новые соединения выделенной сетевой пробы TunnelGuard.</string>
+    <key>NetworkExtension</key>
+    <dict>
+        <key>NEProviderClasses</key>
+        <dict>
+            <key>com.apple.networkextension.filter-data</key>
+            <string>FilterProbeProvider</string>
+        </dict>
+    </dict>
+</dict>
+</plist>

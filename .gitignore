@@ -1,0 +1,15 @@
+.build/
+.swiftpm/
+.DS_Store
+__pycache__/
+*.pyc
+*.app/
+*.log
+*.mobileconfig
+*.p12
+*.pem
+*.key
+.env
+.env.*
+local/
+*.local.json

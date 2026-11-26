@@ -1,0 +1,26 @@
+minimumLimaVersion: 2.3.0
+base:
+  - template:_images/debian-13
+vmType: vz
+arch: aarch64
+cpus: 2
+memory: 3GiB
+disk: 14GiB
+mounts: []
+plain: true
+ssh:
+  overVsock: true
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+  forwardX11: false
+user:
+  name: tunnelguard-admin
+  uid: 1000
+networkOpts:
+  hostLoopback: false
+hostResolver:
+  enabled: false
+propagateProxyEnv: false
+containerd:
+  system: false
+  user: false

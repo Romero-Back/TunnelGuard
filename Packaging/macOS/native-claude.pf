@@ -1,0 +1,4 @@
+# Permit only the verified V2Pro interface for native Claude's process group.
+# Do not create a state that could match after a routing change.
+pass out quick on $vpn_interface inet proto { tcp, udp } all group = $claude_gid no state
+block drop out quick proto { tcp, udp } all group = $claude_gid
