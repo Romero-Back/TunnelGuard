@@ -16,11 +16,19 @@ struct DesktopRuntime: Sendable {
     private let support = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/TunnelGuard", isDirectory: true)
 
-    private var driver: URL { Bundle.main.resourceURL!.appendingPathComponent("Scripts/tunnelguard-native.py") }
+    private var resources: URL { Bundle.main.resourceURL! }
+    private var launcher: [String] {
+        let binary = resources.appendingPathComponent("NativeLauncher/tunnelguard-native").path
+        if FileManager.default.isExecutableFile(atPath: binary) { return [binary] }
+        return ["/usr/bin/python3", "-B", resources.appendingPathComponent("Scripts/tunnelguard-native.py").path]
+    }
     private var sessionFile: URL { support.appendingPathComponent("native-session.json") }
     private var jobFile: URL { support.appendingPathComponent("native-job.plist") }
     private var domain: String { "gui/\(getuid())" }
     var logFile: URL { support.appendingPathComponent("native-session.log") }
+    var filterConfigured: Bool {
+        FileManager.default.fileExists(atPath: "/Library/LaunchDaemons/app.tunnelguard.native-filter.plist")
+    }
 
     func snapshot() throws -> DesktopSnapshot {
         let jobs = try command("/bin/launchctl", ["list"], capture: true)
@@ -40,9 +48,12 @@ struct DesktopRuntime: Sendable {
         return DesktopSnapshot(pid: pid, session: nil)
     }
 
-    func start(expectedIPv4: String) throws -> DesktopSession {
+    func start(expectedIPv4: [String]) throws -> DesktopSession {
         guard try snapshot().pid == nil else { throw DesktopError.alreadyRunning }
-        guard FileManager.default.fileExists(atPath: driver.path) else { throw DesktopError.missingResources }
+        let program = launcher
+        guard let executable = program.first, FileManager.default.fileExists(atPath: executable) else {
+            throw DesktopError.missingResources
+        }
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         let descriptor = Darwin.open(logFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600)
@@ -50,8 +61,8 @@ struct DesktopRuntime: Sendable {
         Darwin.close(descriptor)
         let job: [String: Any] = [
             "Label": label, "RunAtLoad": true,
-            "ProgramArguments": ["/usr/bin/python3", "-B", driver.path, "--expected-egress", expectedIPv4,
-                                 "--ready-file", sessionFile.path],
+            "ProgramArguments": program + expectedIPv4.flatMap { ["--expected-egress", $0] }
+                + ["--ready-file", sessionFile.path],
             "StandardOutPath": logFile.path, "StandardErrorPath": logFile.path,
         ]
         let plist = try PropertyListSerialization.data(fromPropertyList: job, format: .xml, options: 0)
@@ -79,9 +90,29 @@ struct DesktopRuntime: Sendable {
         throw DesktopError.stopFailed
     }
 
-    func check(expectedIPv4: String) -> Bool {
-        let arguments = ["-B", driver.path, "--probe", "--expected-egress", expectedIPv4]
-        return (try? command("/usr/bin/python3", arguments)) != nil
+    func check(expectedIPv4: [String]) -> String? {
+        let program = launcher + ["--probe"] + expectedIPv4.flatMap { ["--expected-egress", $0] }
+        guard let executable = program.first,
+              let output = try? command(executable, Array(program.dropFirst()), capture: true),
+              let address = output.split(whereSeparator: \.isNewline).last.map(String.init),
+              expectedIPv4.contains(address) else { return nil }
+        return address
+    }
+
+    func installFilter() throws {
+        let scripts = resources.appendingPathComponent("Scripts")
+        let installer = try String(contentsOf: scripts.appendingPathComponent("install-native-filter.sh"), encoding: .utf8)
+        let refresh = try String(contentsOf: scripts.appendingPathComponent("refresh-native-pf.sh"), encoding: .utf8)
+        let job: [String: Any] = ["Label": "app.tunnelguard.native-filter", "RunAtLoad": true, "StartInterval": 10,
+                                  "ProgramArguments": ["/bin/sh", "-c", refresh]]
+        let definition = try PropertyListSerialization.data(fromPropertyList: job, format: .xml, options: 0)
+        let authorization = """
+            on run argv
+                set commandText to "/bin/sh -c " & quoted form of item 1 of argv & " sh " & quoted form of item 2 of argv & " " & quoted form of item 3 of argv
+                do shell script commandText with administrator privileges with prompt "TunnelGuard настроит системный фильтр только для Claude."
+            end run
+            """
+        _ = try command("/usr/bin/osascript", ["-e", authorization, installer, NSUserName(), definition.base64EncodedString()])
     }
 
     private func command(_ executable: String, _ arguments: [String], capture: Bool = false) throws -> String {

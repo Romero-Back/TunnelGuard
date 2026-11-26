@@ -123,6 +123,18 @@ for family, kind, endpoint, allowed in cases:
                 policy.authorize(new_tunnel, 4, None)
             self.assertNotIn(4, policy.confirmed)
 
+    def test_multiple_allowed_egress_addresses(self):
+        first, second, unknown = map(ipaddress.ip_address, ("8.8.8.8", "9.9.9.9", "1.1.1.1"))
+        policy = guard.EgressPolicy([first, second])
+        observations = [(first, first), (second, second), (unknown, unknown)]
+        with patch.object(guard, "observe_egress", side_effect=observations):
+            self.assertEqual(policy.authorize(("utun1", 11), 4, None), first)
+            self.assertEqual(policy.authorize(("utun1", 11), 4, None), first)
+            self.assertEqual(policy.authorize(("utun2", 12), 4, None), second)
+            with self.assertRaises(OSError):
+                policy.authorize(("utun3", 13), 4, None)
+            self.assertNotIn(4, policy.confirmed)
+
     def test_egress_denied_before_app_dns_can_leave(self):
         expected, wrong = map(ipaddress.ip_address, ("8.8.8.8", "1.1.1.1"))
         policy = guard.EgressPolicy([expected])

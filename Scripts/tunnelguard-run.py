@@ -158,7 +158,7 @@ class EgressPolicy:
         with self.locks[version]:
             verified = self.confirmed.get(version)
             if verified and verified[0] == tunnel and time.monotonic() < verified[1]:
-                return
+                return verified[2]
             self.confirmed.pop(version, None)
             try:
                 first, second = observe_egress(tunnel, version, tls_context)
@@ -166,7 +166,8 @@ class EgressPolicy:
                 raise OSError("Could not verify the VPN egress") from error
             if first != second or first.version != version or first not in self.expected:
                 raise OSError("The VPN egress does not match the configuration")
-            self.confirmed[version] = (tunnel, time.monotonic() + EGRESS_VALIDITY)
+            self.confirmed[version] = (tunnel, time.monotonic() + EGRESS_VALIDITY, first)
+            return first
 
 
 def destinations(host, tls_context, policy):

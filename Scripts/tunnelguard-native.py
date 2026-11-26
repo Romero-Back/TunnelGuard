@@ -20,10 +20,14 @@ import tempfile
 GROUP = "tunnelguard_claude"
 APP = "/Applications/Claude.app/Contents/MacOS/Claude"
 
-driver = Path(__file__).resolve()
-spec = importlib.util.spec_from_file_location("tunnelguard_runner", driver.with_name("tunnelguard-run.py"))
-guard = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(guard)
+frozen = getattr(sys, "frozen", False)
+if frozen:
+    import tunnelguard_runner as guard
+else:
+    driver = Path(__file__).resolve()
+    spec = importlib.util.spec_from_file_location("tunnelguard_runner", driver.with_name("tunnelguard-run.py"))
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
 
 
 def assert_filter(blocked_port):
@@ -68,18 +72,22 @@ def run(mode, policy, ready_file):
         executables = subprocess.check_output(["/bin/ps", "-axo", "comm="], text=True).splitlines()
         if any(executable.strip() == APP for executable in executables):
             raise OSError("Quit the existing native Claude before launching a protected session")
-    policy.authorize(guard.v2pro_interface(), 4, ssl.create_default_context())
+    verified = policy.authorize(guard.v2pro_interface(), 4, ssl.create_default_context(cafile="/etc/ssl/cert.pem"))
     with socket.socket() as blocked:
         blocked.bind(("127.0.0.1", 0))
         blocked.listen()
-        command = ["/usr/bin/python3", "-B", str(driver), "--child", mode,
-                   str(blocked.getsockname()[1]), str(os.getpid())]
+        command = [sys.executable] if frozen else ["/usr/bin/python3", "-B", str(driver)]
+        command += ["--child", mode, str(blocked.getsockname()[1]), str(os.getpid())]
         if ready_file:
             command.append(str(ready_file))
         environment = dict(os.environ, SHELL="/bin/sh")
+        if frozen:
+            environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
         try:
             result = subprocess.run(["/usr/bin/newgrp", GROUP], input="exec " + shlex.join(command) + "\n",
                                     text=True, env=environment, check=False)
+            if mode == "probe" and result.returncode == 0:
+                print(verified, flush=True)
             return result.returncode if result.returncode >= 0 else 128 - result.returncode
         finally:
             if ready_file and ready_file.exists():
@@ -94,13 +102,16 @@ def main():
         return child(sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), *sys.argv[5:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--probe", action="store_true", help="test the filter and V2Pro without starting Claude")
-    parser.add_argument("--expected-egress", required=True, type=guard.expected_egress)
+    parser.add_argument("--expected-egress", action="append", required=True, type=guard.expected_egress,
+                        help="permitted VPN IPv4, repeat to allow more than one")
     parser.add_argument("--ready-file", type=Path)
     args = parser.parse_args()
     if sys.platform != "darwin" or os.geteuid() == 0:
         parser.error("requires an unprivileged macOS user")
+    if any(address.version != 4 for address in args.expected_egress):
+        parser.error("the native Claude filter only supports IPv4")
     mode = "probe" if args.probe else "session"
-    return run(mode, guard.EgressPolicy([args.expected_egress]), args.ready_file if mode == "session" else None)
+    return run(mode, guard.EgressPolicy(args.expected_egress), args.ready_file if mode == "session" else None)
 
 
 if __name__ == "__main__":

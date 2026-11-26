@@ -1,0 +1,58 @@
+name: Release TunnelGuard
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Validate tag and test
+        run: |
+          set -eu
+          test "$(uname -m)" = arm64
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Packaging/macOS/TunnelGuard-Info.plist)
+          test "$GITHUB_REF_NAME" = "v$version"
+          python -B Tests/check_free_launcher.py
+          swift build -c release --product tunnelguard-check-profile
+          python -B Tests/check_profile.py "$(swift build -c release --show-bin-path)/tunnelguard-check-profile"
+          sh -n Packaging/macOS/install-native-filter.sh
+      - name: Build downloadable app
+        run: |
+          set -eu
+          python -m pip install 'pyinstaller==6.22.3'
+          export TUNNELGUARD_PYINSTALLER_PYTHON="$(command -v python)"
+          app=$(sh Packaging/macOS/build-app.sh -c release)
+          codesign --verify --strict "$app"
+          "$app/Contents/Resources/NativeLauncher/tunnelguard-native" --help
+          archive="TunnelGuard-${GITHUB_REF_NAME}-macOS-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
+          shasum -a 256 "$archive" > "$archive.sha256"
+      - name: Publish ZIP and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          archive="TunnelGuard-${GITHUB_REF_NAME}-macOS-arm64.zip"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$archive" "$archive.sha256" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$archive" "$archive.sha256" --verify-tag --title "TunnelGuard $GITHUB_REF_NAME" --generate-notes
+          fi
