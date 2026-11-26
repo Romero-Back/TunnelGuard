@@ -32,6 +32,7 @@ jobs:
           version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Packaging/macOS/TunnelGuard-Info.plist)
           test "$GITHUB_REF_NAME" = "v$version"
           python -B Tests/check_free_launcher.py -v
+          python -B Tests/check_native_launcher.py -v
           swift build -c release --product tunnelguard-check-profile
           python -B Tests/check_profile.py "$(swift build -c release --show-bin-path)/tunnelguard-check-profile"
           sh -n Packaging/macOS/install-native-filter.sh

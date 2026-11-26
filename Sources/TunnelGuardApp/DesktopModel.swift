@@ -5,7 +5,7 @@ import SwiftUI
 
 @MainActor
 final class DesktopModel: ObservableObject {
-    enum Operation { case settingUp, starting, stopping }
+    enum Operation { case settingUp, opening, checkingNetwork, stopping }
     enum NetworkState: Equatable { case unchecked, checking, connected(String), blocked }
 
     enum Appearance: String, CaseIterable, Identifiable {
@@ -48,6 +48,14 @@ final class DesktopModel: ObservableObject {
             case .violet: Color(red: 0.45, green: 0.32, blue: 0.72)
             }
         }
+
+        var darkForeground: Color {
+            switch self {
+            case .mint: Color(red: 0.43, green: 0.84, blue: 0.76)
+            case .blue: Color(red: 0.56, green: 0.73, blue: 1.00)
+            case .violet: Color(red: 0.76, green: 0.65, blue: 0.97)
+            }
+        }
     }
 
     private let runtime = DesktopRuntime()
@@ -83,7 +91,8 @@ final class DesktopModel: ObservableObject {
     }
 
     var hasSession: Bool { activePID != nil }
-    var isReady: Bool { operation == nil && !effectiveAddresses.isEmpty }
+    var canCheckNetwork: Bool { operation == nil && filterConfigured && !effectiveAddresses.isEmpty }
+    var hasLog: Bool { FileManager.default.fileExists(atPath: runtime.logFile.path) }
     var effectiveAddresses: [String] {
         if let selectedAddress, addresses.contains(selectedAddress) { return [selectedAddress] }
         return addresses
@@ -92,7 +101,7 @@ final class DesktopModel: ObservableObject {
     var status: String {
         switch operation {
         case .settingUp: return "Настройка защиты"
-        case .starting: return "Claude запускается"
+        case .opening, .checkingNetwork: return "Проверяем сеть"
         case .stopping: return "Сеанс закрывается"
         case nil:
             if session != nil { return "Claude запущен" }
@@ -101,6 +110,7 @@ final class DesktopModel: ObservableObject {
     }
 
     func addAddress() {
+        guard operation == nil else { return }
         guard let address = Self.publicIPv4(addressDraft) else {
             addressError = "Введи публичный IPv4."
             return
@@ -116,6 +126,7 @@ final class DesktopModel: ObservableObject {
     }
 
     func removeAddress(_ address: String) {
+        guard operation == nil else { return }
         addresses.removeAll { $0 == address }
         if selectedAddress == address { selectedAddress = nil }
         saveAddresses()
@@ -127,6 +138,7 @@ final class DesktopModel: ObservableObject {
         defaults.removeObject(forKey: "expectedIPv4")
         networkState = .unchecked
         lastChecked = nil
+        error = nil
     }
 
     private static func publicIPv4(_ input: String) -> String? {
@@ -163,25 +175,34 @@ final class DesktopModel: ObservableObject {
         }
     }
 
-    func start() {
-        guard isReady, !hasSession else { return }
+    func openClaude() {
+        guard canCheckNetwork, !hasSession || session != nil else { return }
         let addresses = effectiveAddresses
         let runtime = self.runtime
-        operation = .starting
-        error = nil
-        networkState = .unchecked
+        let currentSession = session
+        beginNetworkCheck(.opening)
         Task {
             do {
-                let running = try await Task.detached { try runtime.start(expectedIPv4: addresses) }.value
-                session = running
-                activePID = running.pid
-                operation = nil
-                checkNetwork()
+                if let currentSession {
+                    let result = try await Task.detached {
+                        let address = try runtime.check(expectedIPv4: addresses)
+                        return (address: address, sessionMatches: try runtime.snapshot().session == currentSession)
+                    }.value
+                    finishNetworkCheck(address: result.address)
+                    if !result.sessionMatches || !activate(currentSession) {
+                        error = DesktopError.openFailed.localizedDescription
+                    }
+                } else {
+                    let running = try await Task.detached { try runtime.start(expectedIPv4: addresses) }.value
+                    session = running.session
+                    activePID = running.session.pid
+                    finishNetworkCheck(address: running.address)
+                }
             } catch {
-                self.error = error.localizedDescription
-                operation = nil
-                refresh()
+                failNetworkCheck(error)
             }
+            operation = nil
+            refresh()
         }
     }
 
@@ -206,20 +227,41 @@ final class DesktopModel: ObservableObject {
     }
 
     func checkNetwork() {
-        guard isReady, networkState != .checking else { return }
+        guard canCheckNetwork else { return }
         let runtime = self.runtime
         let addresses = effectiveAddresses
-        let currentSession = session
-        networkState = .checking
+        beginNetworkCheck(.checkingNetwork)
         Task {
-            let result = await Task.detached { runtime.check(expectedIPv4: addresses) }.value
-            guard operation == nil, currentSession == session, addresses == effectiveAddresses else {
-                if networkState == .checking { networkState = .unchecked }
-                return
+            do {
+                let address = try await Task.detached { try runtime.check(expectedIPv4: addresses) }.value
+                finishNetworkCheck(address: address)
+            } catch {
+                failNetworkCheck(error)
             }
-            networkState = result.map(NetworkState.connected) ?? .blocked
-            lastChecked = Date()
+            operation = nil
         }
+    }
+
+    private func beginNetworkCheck(_ operation: Operation) {
+        self.operation = operation
+        networkState = .checking
+        lastChecked = nil
+        error = nil
+    }
+
+    private func finishNetworkCheck(address: String) {
+        networkState = .connected(address)
+        lastChecked = Date()
+    }
+
+    private func failNetworkCheck(_ error: Error) {
+        if case DesktopError.networkBlocked = error {
+            networkState = .blocked
+            lastChecked = Date()
+        } else {
+            networkState = .unchecked
+        }
+        self.error = error.localizedDescription
     }
 
     func installFilter() {
@@ -232,20 +274,20 @@ final class DesktopModel: ObservableObject {
                 try await Task.detached { try runtime.installFilter() }.value
                 filterConfigured = runtime.filterConfigured
             } catch {
-                self.error = "Настройка защиты не завершилась. Можно повторить её из настроек."
+                self.error = "Настройка защиты не завершилась. Попробуй ещё раз."
             }
             operation = nil
             if error == nil { checkNetwork() }
         }
     }
 
-    func openSession() {
-        guard let session else { return }
-        _ = NSRunningApplication(processIdentifier: session.appPid)?.activate()
+    private func activate(_ session: DesktopSession) -> Bool {
+        guard let application = NSRunningApplication(processIdentifier: session.appPid) else { return false }
+        return application.isActive || application.activate()
     }
 
     func revealLog() {
-        guard FileManager.default.fileExists(atPath: runtime.logFile.path) else { return }
+        guard hasLog else { return }
         NSWorkspace.shared.activateFileViewerSelecting([runtime.logFile])
     }
 }

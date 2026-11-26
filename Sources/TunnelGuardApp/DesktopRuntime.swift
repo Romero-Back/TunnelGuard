@@ -4,11 +4,13 @@ import Foundation
 struct DesktopSession: Decodable, Equatable, Sendable {
     let pid: Int
     let appPid: Int32
+    let verifiedIPv4: String?
 }
 
 struct DesktopSnapshot: Sendable {
     let pid: Int?
     let session: DesktopSession?
+    let exitStatus: Int?
 }
 
 struct DesktopRuntime: Sendable {
@@ -32,23 +34,24 @@ struct DesktopRuntime: Sendable {
 
     func snapshot() throws -> DesktopSnapshot {
         let jobs = try command("/bin/launchctl", ["list"], capture: true)
-        let pid = jobs.split(separator: "\n").compactMap { line -> Int? in
+        let job = jobs.split(separator: "\n").lazy.compactMap { line -> (pid: Int?, status: Int?)? in
             let fields = line.split(whereSeparator: \.isWhitespace)
-            guard fields.count == 3, fields[2] == label, let pid = Int(fields[0]), pid > 1 else { return nil }
-            return pid
+            guard fields.count == 3, fields[2] == label else { return nil }
+            return (Int(fields[0]), Int(fields[1]))
         }.first
+        let pid = job?.pid
         let record = try? JSONDecoder().decode(DesktopSession.self, from: Data(contentsOf: sessionFile))
         if let record, record.pid == pid, record.appPid > 1 {
             var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
             let count = proc_pidpath(record.appPid, &path, UInt32(path.count))
             if count > 0, String(cString: path) == "/Applications/Claude.app/Contents/MacOS/Claude" {
-                return DesktopSnapshot(pid: pid, session: record)
+                return DesktopSnapshot(pid: pid, session: record, exitStatus: job?.status)
             }
         }
-        return DesktopSnapshot(pid: pid, session: nil)
+        return DesktopSnapshot(pid: pid, session: nil, exitStatus: job?.status)
     }
 
-    func start(expectedIPv4: [String]) throws -> DesktopSession {
+    func start(expectedIPv4: [String]) throws -> (session: DesktopSession, address: String) {
         guard try snapshot().pid == nil else { throw DesktopError.alreadyRunning }
         let program = launcher
         guard let executable = program.first, FileManager.default.fileExists(atPath: executable) else {
@@ -69,10 +72,20 @@ struct DesktopRuntime: Sendable {
         try plist.write(to: jobFile, options: .atomic)
         _ = try? command("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
         _ = try command("/bin/launchctl", ["bootstrap", domain, jobFile.path])
+        var ready = false
+        defer {
+            if !ready { _ = try? command("/bin/launchctl", ["bootout", "\(domain)/\(label)"]) }
+        }
         let start = Date()
         while Date().timeIntervalSince(start) < 35 {
             let snapshot = try snapshot()
-            if let session = snapshot.session { return session }
+            if let session = snapshot.session,
+               let address = session.verifiedIPv4, expectedIPv4.contains(address) {
+                ready = true
+                return (session, address)
+            }
+            // The native launcher uses EX_TEMPFAIL when preflight refuses network access.
+            if snapshot.pid == nil && snapshot.exitStatus == Int(EX_TEMPFAIL) { throw DesktopError.networkBlocked }
             if snapshot.pid == nil && Date().timeIntervalSince(start) > 2 { break }
             Thread.sleep(forTimeInterval: 0.3)
         }
@@ -90,12 +103,12 @@ struct DesktopRuntime: Sendable {
         throw DesktopError.stopFailed
     }
 
-    func check(expectedIPv4: [String]) -> String? {
+    func check(expectedIPv4: [String]) throws -> String {
         let program = launcher + ["--probe"] + expectedIPv4.flatMap { ["--expected-egress", $0] }
         guard let executable = program.first,
               let output = try? command(executable, Array(program.dropFirst()), capture: true),
               let address = output.split(whereSeparator: \.isNewline).last.map(String.init),
-              expectedIPv4.contains(address) else { return nil }
+              expectedIPv4.contains(address) else { throw DesktopError.networkBlocked }
         return address
     }
 
@@ -132,13 +145,15 @@ struct DesktopRuntime: Sendable {
 }
 
 enum DesktopError: LocalizedError {
-    case alreadyRunning, missingResources, startFailed, stopFailed, commandFailed
+    case alreadyRunning, missingResources, networkBlocked, startFailed, openFailed, stopFailed, commandFailed
 
     var errorDescription: String? {
         switch self {
         case .alreadyRunning: "Защищённый сеанс Claude уже запущен."
         case .missingResources: "В сборке отсутствует запускатор Claude."
+        case .networkBlocked: "Проверь подключение V2Pro и разрешённые IPv4, затем попробуй снова."
         case .startFailed: "Claude не открылся. Проверь, закрыт ли обычный Claude и активен ли сетевой фильтр."
+        case .openFailed: "Не удалось открыть окно Claude. Проверь состояние сеанса и попробуй снова."
         case .stopFailed: "Не удалось подтвердить остановку сеанса."
         case .commandFailed: "Команда завершилась с ошибкой."
         }

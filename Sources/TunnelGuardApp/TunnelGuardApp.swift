@@ -12,35 +12,24 @@ struct TunnelGuardApp: App {
 
 private struct DesktopView: View {
     @StateObject private var model = DesktopModel()
+    @Environment(\.colorScheme) private var colorScheme
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
     private var accent: Color { model.accent.color }
+    private var accentForeground: Color { colorScheme == .dark ? model.accent.darkForeground : accent }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("TunnelGuard").font(.system(size: 25, weight: .bold))
-                    Text("Сетевая защита Claude Desktop").foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button { model.showsSettings = true } label: {
-                    Label("Настройки", systemImage: "gearshape")
-                }
-                .keyboardShortcut(",", modifiers: .command)
-                .controlSize(.large)
-            }
-
-            statusCard
+            header
+            sessionCard
             connectionCard
-            if !model.filterConfigured { setupCard }
             if let error = model.error { errorCard(error) }
             actions
         }
-        .padding(26)
-        .frame(width: 612)
+        .padding(24)
+        .frame(width: 600)
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(model.appearance.colorScheme)
-        .tint(accent)
+        .tint(.primary)
         .onAppear(perform: model.refresh)
         .onReceive(timer) { _ in model.refresh() }
         .sheet(isPresented: $model.showsSettings) {
@@ -56,126 +45,192 @@ private struct DesktopView: View {
         }
     }
 
-    private var statusCard: some View {
-        HStack(spacing: 18) {
-            Image(systemName: model.session == nil ? "shield" : "checkmark.shield.fill")
-                .font(.system(size: 30, weight: .medium))
-                .foregroundStyle(Color(red: 0.53, green: 0.95, blue: 0.82))
-                .frame(width: 64, height: 64)
-                .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
+    private var header: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lock.shield.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(accentForeground)
+                .frame(width: 34, height: 34)
+                .background(accentForeground.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
                 .accessibilityHidden(true)
+            Text("TunnelGuard").font(.system(size: 20, weight: .semibold))
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            Button { model.showsSettings = true } label: {
+                Label("Настройки", systemImage: "gearshape")
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+    }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Сеанс Claude").font(.subheadline).foregroundStyle(.white.opacity(0.75))
-                Text(model.status).font(.system(size: 25, weight: .semibold))
+    private var sessionCard: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14).fill(.white.opacity(0.10))
+                if model.operation != nil {
+                    ProgressView().controlSize(.small).colorScheme(.dark)
+                        .accessibilityHidden(true)
+                } else {
+                    Image(systemName: sessionIcon)
+                        .font(.system(size: 25, weight: .medium))
+                        .foregroundStyle(Color(red: 0.68, green: 0.90, blue: 0.86))
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(width: 52, height: 52)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(model.status).font(.system(size: 26, weight: .semibold))
                     .accessibilityIdentifier("session-status")
+                    .accessibilityAddTraits(.isHeader)
+                Text(sessionDetail).font(.subheadline).foregroundStyle(.white.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            if model.operation != nil {
-                ProgressView().controlSize(.small).colorScheme(.dark)
-            } else {
-                Label("V2Pro", systemImage: "network")
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 10).padding(.vertical, 7)
-                    .background(.white.opacity(0.12), in: Capsule())
-            }
         }
         .foregroundStyle(.white)
-        .padding(22)
+        .padding(20)
+        .frame(minHeight: 106, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 20).fill(
-                LinearGradient(colors: [Color(red: 0.05, green: 0.16, blue: 0.20),
-                                        Color(red: 0.08, green: 0.32, blue: 0.32)],
+            RoundedRectangle(cornerRadius: 16).fill(
+                LinearGradient(colors: [Color(red: 0.09, green: 0.14, blue: 0.21),
+                                        Color(red: 0.13, green: 0.24, blue: 0.30)],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
             )
         }
     }
 
     private var connectionCard: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack(spacing: 10) {
-                Image(systemName: networkIcon).foregroundStyle(networkTint)
-                    .frame(width: 22).accessibilityHidden(true)
-                Text(networkText).font(.subheadline.weight(.medium))
-                    .accessibilityIdentifier("network-status")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Подключение", systemImage: "network").font(.headline)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
-                if let checked = model.lastChecked { Text(checked, style: .time).monospacedDigit() }
+                Text("V2Pro").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.primary.opacity(0.07), in: Capsule())
             }
             Divider()
-            LabeledContent("Правило проверки IPv4") {
+            HStack(spacing: 8) {
+                Image(systemName: networkIcon).foregroundStyle(networkTint)
+                    .frame(width: 18).accessibilityHidden(true)
+                Text(networkText).fontWeight(.medium)
+                    .accessibilityIdentifier("network-status")
+                Spacer()
+                if let checked = model.lastChecked {
+                    Text(checked, style: .time).monospacedDigit().foregroundStyle(.secondary)
+                        .accessibilityLabel("Время проверки")
+                        .accessibilityValue(Text(checked, style: .time))
+                }
+            }
+            HStack {
+                Text("Разрешённый выход IPv4")
+                Spacer()
                 Text(addressSummary).monospacedDigit()
             }
+            .accessibilityElement(children: .combine)
+            .foregroundStyle(.secondary)
         }
         .font(.subheadline)
         .padding(16)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
-    }
-
-    private var setupCard: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "lock.shield").foregroundStyle(accent)
-            Text("Подготовь системный фильтр для запуска Claude.")
-            Spacer()
-            Button("Настроить защиту", action: model.installFilter).disabled(model.operation != nil)
-        }
-        .font(.subheadline)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary))
     }
 
     private func errorCard(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Label(message, systemImage: "exclamationmark.circle").fixedSize(horizontal: false, vertical: true)
-            Spacer()
-            Button("Журнал", action: model.revealLog).buttonStyle(.link)
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            Text(message).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            if model.networkState != .blocked && model.hasLog {
+                Button("Журнал", action: model.revealLog).buttonStyle(.link)
+            }
         }
         .font(.footnote)
+        .padding(12)
+        .background(.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var actions: some View {
         HStack(spacing: 10) {
-            Button {
-                if model.hasSession { model.openSession() }
-                else if model.addresses.isEmpty { model.showsSettings = true }
-                else { model.start() }
-            } label: {
-                Label(model.hasSession ? "Открыть Claude" : model.addresses.isEmpty ? "Добавить IPv4" : "Запустить Claude",
-                      systemImage: model.hasSession ? "arrow.up.right.square" : model.addresses.isEmpty ? "plus" : "play.fill")
-                    .frame(minWidth: 138)
+            if model.hasSession {
+                Button { model.confirmStop = true } label: {
+                    Label("Остановить", systemImage: "stop.fill")
+                }
+                .disabled(model.operation != nil)
+            }
+            Spacer()
+            Button(action: model.checkNetwork) { Label("Проверить сеть", systemImage: "arrow.clockwise") }
+                .disabled(!model.canCheckNetwork)
+            Button(action: primaryAction) {
+                Label(primaryTitle, systemImage: primaryIcon)
             }
             .buttonStyle(.borderedProminent)
+            .tint(accent)
             .keyboardShortcut(.defaultAction)
             .disabled(model.operation != nil || (model.hasSession && model.session == nil))
-
-            Button(action: model.checkNetwork) { Label("Проверить сеть", systemImage: "arrow.clockwise") }
-                .disabled(!model.isReady || model.networkState == .checking)
-
-            Spacer()
-            if model.hasSession {
-                Button("Остановить") { model.confirmStop = true }
-                    .disabled(model.operation != nil)
-            }
         }
         .controlSize(.large)
     }
 
+    private var sessionIcon: String {
+        if !model.filterConfigured { return "shield" }
+        return model.hasSession ? "lock.shield.fill" : "lock.shield"
+    }
+
+    private var sessionDetail: String {
+        switch model.operation {
+        case .opening: return "Claude откроется после проверки V2Pro и сетевого фильтра."
+        case .checkingNetwork: return "Проверяем сетевой фильтр и разрешённый IPv4."
+        case .settingUp: return "Подготавливаем сетевые правила для Claude."
+        case .stopping: return "Завершаем защищённый сеанс Claude Desktop."
+        case nil: break
+        }
+        if !model.filterConfigured { return "Настрой сетевой фильтр TunnelGuard для Claude Desktop." }
+        if model.addresses.isEmpty { return "Добавь публичный IPv4 своего VPN в настройках." }
+        if model.hasSession { return "TunnelGuard проверит сеть при открытии окна Claude." }
+        return "TunnelGuard проверит сеть перед запуском Claude Desktop."
+    }
+
+    private var primaryTitle: String {
+        if model.operation == .opening { return "Проверяем сеть…" }
+        if !model.filterConfigured { return "Настроить защиту" }
+        if model.addresses.isEmpty { return "Добавить IPv4" }
+        return model.hasSession ? "Открыть Claude" : "Запустить Claude"
+    }
+
+    private var primaryIcon: String {
+        if model.operation == .opening { return "hourglass" }
+        if !model.filterConfigured { return "lock.shield" }
+        if model.addresses.isEmpty { return "plus" }
+        return model.hasSession ? "arrow.up.right.square" : "play.fill"
+    }
+
+    private func primaryAction() {
+        if !model.filterConfigured { model.installFilter() }
+        else if model.addresses.isEmpty { model.showsSettings = true }
+        else { model.openClaude() }
+    }
+
     private var addressSummary: String {
-        if model.addresses.isEmpty { return "Добавь адрес в настройках" }
+        if model.addresses.isEmpty { return "Адрес не задан" }
         if model.effectiveAddresses.count == 1 { return model.effectiveAddresses[0] }
         return "Авто · \(model.effectiveAddresses.count)"
     }
 
     private var networkText: String {
         switch model.networkState {
-        case .unchecked: "Сеть ещё не проверена"
-        case .checking: "Проверяем V2Pro и сетевой фильтр…"
-        case let .connected(address): "Подтверждён выход \(address)"
-        case .blocked: "Не удалось подтвердить защищённое подключение"
+        case .unchecked: "Ожидает проверки"
+        case .checking: "Проверка V2Pro и фильтра…"
+        case let .connected(address): "Подтверждён IPv4 \(address)"
+        case .blocked: "Сеть не подтверждена"
         }
     }
 
     private var networkIcon: String {
         switch model.networkState {
-        case .unchecked: "network"
+        case .unchecked: "circle.dotted"
         case .checking: "arrow.triangle.2.circlepath"
         case .connected: "checkmark.circle.fill"
         case .blocked: "exclamationmark.triangle.fill"
@@ -184,7 +239,7 @@ private struct DesktopView: View {
 
     private var networkTint: Color {
         switch model.networkState {
-        case .connected: accent
+        case .connected: accentForeground
         case .blocked: .orange
         default: .secondary
         }
@@ -203,7 +258,8 @@ private struct PreferencesView: View {
             }
 
             TabView {
-                vpnTab.tabItem { Label("VPN", systemImage: "network") }
+                vpnTab.disabled(model.operation != nil)
+                    .tabItem { Label("VPN", systemImage: "network") }
                 appearanceTab.tabItem { Label("Оформление", systemImage: "paintbrush") }
             }
             .frame(height: 322)
