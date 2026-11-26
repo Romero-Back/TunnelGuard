@@ -13,7 +13,7 @@ struct TunnelGuardApp: App {
 private struct DesktopView: View {
     @StateObject private var model = DesktopModel()
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
-    private let accent = Color(red: 0.05, green: 0.48, blue: 0.42)
+    private var accent: Color { model.accent.color }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -263,6 +263,31 @@ private struct PreferencesView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            Divider().padding(.vertical, 6)
+            Text("Акцентный цвет").font(.headline)
+            HStack(spacing: 10) {
+                ForEach(DesktopModel.Accent.allCases) { accent in
+                    Button { model.accent = accent } label: {
+                        VStack(spacing: 8) {
+                            Circle().fill(accent.color).frame(width: 28, height: 28)
+                                .overlay {
+                                    if model.accent == accent {
+                                        Image(systemName: "checkmark").font(.caption.bold()).foregroundStyle(.white)
+                                    }
+                                }
+                            Text(accent.name).foregroundStyle(.primary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(accent.color.opacity(model.accent == accent ? 0.14 : 0.05),
+                                    in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(accent.color.opacity(model.accent == accent ? 0.55 : 0.16)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(model.accent == accent ? .isSelected : [])
+                }
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

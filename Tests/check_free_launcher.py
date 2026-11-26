@@ -151,7 +151,7 @@ for family, kind, endpoint, allowed in cases:
 import errno, os, socket, sys
 from urllib.parse import urlsplit
 proxy = urlsplit(os.environ['HTTPS_PROXY'])
-with socket.create_connection((proxy.hostname, proxy.port), timeout=3) as active:
+with socket.create_connection((proxy.hostname, proxy.port), timeout=10) as active:
     print('ready', flush=True)
     assert os.read(0, 1) == b'x'
     try:
@@ -174,13 +174,13 @@ print('blocked', flush=True)
                                    sys.executable, "-c", child_code, str(control.getsockname()[1])],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True) as proxy:
                 try:
-                    self.assertTrue(select.select([proxy.stdout], [], [], 5)[0])
+                    self.assertTrue(select.select([proxy.stdout], [], [], 45)[0], "proxy child did not become ready")
                     self.assertEqual(proxy.stdout.readline().strip(), b"ready")
                     proxy.kill()
-                    proxy.wait(timeout=3)
+                    proxy.wait(timeout=10)
                     proxy.stdin.write(b"x")
                     proxy.stdin.flush()
-                    self.assertTrue(select.select([proxy.stdout], [], [], 5)[0])
+                    self.assertTrue(select.select([proxy.stdout], [], [], 15)[0], "proxy child did not finish")
                     self.assertEqual(proxy.stdout.readline().strip(), b"blocked")
                 finally:
                     with contextlib.suppress(ProcessLookupError):

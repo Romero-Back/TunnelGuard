@@ -29,12 +29,34 @@ final class DesktopModel: ObservableObject {
         }
     }
 
+    enum Accent: String, CaseIterable, Identifiable {
+        case mint, blue, violet
+
+        var id: Self { self }
+        var name: String {
+            switch self {
+            case .mint: "Мятный"
+            case .blue: "Синий"
+            case .violet: "Сиреневый"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .mint: Color(red: 0.05, green: 0.48, blue: 0.42)
+            case .blue: Color(red: 0.16, green: 0.44, blue: 0.82)
+            case .violet: Color(red: 0.45, green: 0.32, blue: 0.72)
+            }
+        }
+    }
+
     private let runtime = DesktopRuntime()
     private let defaults: UserDefaults
     private var refreshing = false
     @Published private(set) var addresses: [String]
     @Published var selectedAddress: String? { didSet { saveAddresses() } }
     @Published var appearance: Appearance { didSet { defaults.set(appearance.rawValue, forKey: "appearance") } }
+    @Published var accent: Accent { didSet { defaults.set(accent.rawValue, forKey: "accent") } }
     @Published var showsSettings = false
     @Published var addressDraft = ""
     @Published private(set) var addressError: String?
@@ -55,6 +77,7 @@ final class DesktopModel: ObservableObject {
         addresses = allowed
         selectedAddress = defaults.string(forKey: "selectedIPv4").flatMap { allowed.contains($0) ? $0 : nil }
         appearance = defaults.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system
+        accent = defaults.string(forKey: "accent").flatMap(Accent.init(rawValue:)) ?? .mint
         filterConfigured = runtime.filterConfigured
         saveAddresses()
     }
