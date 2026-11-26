@@ -8,7 +8,7 @@ TunnelGuard — локальный kill switch для обычного Claude De
 
 ### Установка из GitHub Releases
 
-1. Скачай ZIP для Apple Silicon, распакуй его и перенеси `TunnelGuard.app` в «Программы». Нужны установленные Claude Desktop и V2Pro. [Скачать TunnelGuard](https://github.com/Romero-Back/TunnelGuard/releases/latest).
+1. Скачай и открой DMG для Apple Silicon. Перетащи `TunnelGuard.app` на значок `Applications` внутри образа, чтобы установить приложение в «Программы». Нужны установленные Claude Desktop и V2Pro. [Скачать TunnelGuard](https://github.com/Romero-Back/TunnelGuard/releases/latest).
 2. Открой TunnelGuard и нажми «Настроить защиту». Подтверди установку локального фильтра в системном окне macOS. Действие требуется один раз. Оно добавляет отдельные правила для группы Claude и задачу их обновления при смене интерфейса V2Pro.
 3. В настройках VPN добавь публичные IPv4 выхода своих серверов. «Авто» принимает любой адрес из списка. Для проверки одного адреса выбери его в меню. Подключи полнотуннельный профиль V2Pro и нажми «Запустить Claude».
 
@@ -27,7 +27,7 @@ app=$(sh Packaging/macOS/build-app.sh -c release)
 open "$app"
 ```
 
-GitHub Actions собирает ZIP и публикует SHA-256 для каждого тега вида `v0.4.0`. Тег должен совпадать с версией в `Packaging/macOS/TunnelGuard-Info.plist`.
+GitHub Actions собирает DMG и публикует SHA-256 для каждого тега вида `v0.4.2`. Тег должен совпадать с версией в `Packaging/macOS/TunnelGuard-Info.plist`.
 
 ## Ранее испытанный запуск Claude Desktop в VM
 

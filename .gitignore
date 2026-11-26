@@ -4,6 +4,8 @@
 __pycache__/
 *.pyc
 *.app/
+*.dmg
+*.dmg.sha256
 *.log
 *.mobileconfig
 *.p12
