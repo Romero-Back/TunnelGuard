@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(TunnelGuardWindows LANGUAGES CXX)
+add_library(tunnelguard_wfp SHARED firewall.cpp)
+target_compile_features(tunnelguard_wfp PRIVATE cxx_std_17)
+target_link_libraries(tunnelguard_wfp PRIVATE fwpuclnt iphlpapi ws2_32 advapi32 userenv)
+add_executable(tunnelguard_probe ../Tests/Windows/probe.cpp)
+target_link_libraries(tunnelguard_probe PRIVATE ws2_32)
