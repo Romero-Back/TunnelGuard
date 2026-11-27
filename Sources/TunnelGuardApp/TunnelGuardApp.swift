@@ -16,7 +16,8 @@ struct TunnelGuardApp: App {
         .defaultSize(width: 1110, height: 770)
         .windowResizability(.contentSize)
         .commands {
-            CommandGroup(after: .appInfo) {
+            CommandGroup(replacing: .appInfo) {
+                Button("О нас", action: menu.showAbout)
                 Button("Проверить обновления…", action: menu.checkForUpdates)
             }
             CommandMenu("Интерфейс") {

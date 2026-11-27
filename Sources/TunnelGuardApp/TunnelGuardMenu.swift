@@ -69,6 +69,7 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
             add("Скачать TunnelGuard \(availableUpdate.version)…", to: menu, action: #selector(openUpdatePage))
         }
         add("Проверить обновления…", to: menu, action: #selector(checkForUpdates), enabled: updateCheck == nil)
+        add("О нас", to: menu, action: #selector(showAbout))
         add("Выход из TunnelGuard", to: menu, action: #selector(quit))
     }
 
@@ -88,9 +89,19 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func showWindow() {
+        activateApplication()
+        revealWindow?()
+    }
+
+    @objc func showAbout() {
+        let credits = NSAttributedString(string: "Сделано энтузиастами для бесплатного использования.")
+        activateApplication()
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+    }
+
+    private func activateApplication() {
         if #available(macOS 14, *) { NSApp.activate() }
         else { NSApp.activate(ignoringOtherApps: true) }
-        revealWindow?()
     }
 
     @objc func checkForUpdates() { checkUpdates(interactive: true) }
@@ -128,8 +139,7 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func showUpdateAlert(_ title: String, detail: String, download: Bool = false) {
-        if #available(macOS 14, *) { NSApp.activate() }
-        else { NSApp.activate(ignoringOtherApps: true) }
+        activateApplication()
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = detail
