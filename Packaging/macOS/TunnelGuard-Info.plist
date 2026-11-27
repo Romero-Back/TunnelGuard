@@ -15,7 +15,7 @@
     <key>CFBundleShortVersionString</key>
     <string>0.5.7</string>
     <key>CFBundleVersion</key>
-    <string>14</string>
+    <string>15</string>
     <key>SUFeedURL</key>
     <string>https://github.com/Romero-Back/TunnelGuard/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>

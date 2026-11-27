@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct PreferencesView: View {
@@ -83,10 +84,38 @@ struct PreferencesView: View {
             if let error = model.error {
                 Text(error).foregroundStyle(.orange)
             }
+            Divider()
+            Button("Настроить на другом Mac", action: showOtherMacSetup)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(16)
+    }
+
+    private func showOtherMacSetup() {
+        let release = "https://github.com/Romero-Back/TunnelGuard/releases/latest"
+        let instructions = """
+            1. На другом Mac с Apple Silicon скачай и установи TunnelGuard.
+            2. Подключи V2Pro и добавь разрешённый IPv4 выхода во вкладке «VPN».
+            3. Установи фильтр PF через «Приложения», затем закрой Claude Desktop.
+            4. В экспертном режиме выбери «Настройки → Claude Desktop → Ограничить прямой запуск» и подтверди права администратора.
+            """
+        let alert = NSAlert()
+        alert.messageText = "Настроить на другом Mac"
+        alert.informativeText = instructions
+        alert.addButton(withTitle: "Скопировать инструкцию")
+        alert.addButton(withTitle: "Открыть релиз")
+        alert.addButton(withTitle: "Закрыть")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString("TunnelGuard\n" + release + "\n\n" + instructions, forType: .string)
+        case .alertSecondButtonReturn:
+            if let url = URL(string: release) { NSWorkspace.shared.open(url) }
+        default:
+            break
+        }
     }
 
     private var appearanceTab: some View {
