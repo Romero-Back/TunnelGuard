@@ -54,10 +54,11 @@ struct DesktopRuntime: Sendable {
               lstat(gateDirectory + "/launch", &helper) == 0, helper.st_uid == 0,
               helper.st_mode & S_IFMT == S_IFREG, helper.st_mode & 0o022 == 0,
               lstat("/private/etc/sudoers.d/tunnelguard-desktop", &rule) == 0, rule.st_uid == 0,
-              rule.st_mode & S_IFMT == S_IFREG, rule.st_mode & 0o022 == 0,
-              (try? FileManager.default.destinationOfSymbolicLink(atPath: ordinaryBundle)) == target else {
+              rule.st_mode & S_IFMT == S_IFREG, rule.st_mode & 0o022 == 0 else {
             return .invalid
         }
+        if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: ordinaryBundle),
+           destination != target { return .invalid }
         let executable = ordinaryBundle + "/Contents/MacOS/Claude"
         return access(executable, X_OK) == -1 && errno == EACCES ? .installed : .invalid
     }

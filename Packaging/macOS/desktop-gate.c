@@ -15,6 +15,9 @@
 #ifndef GATE_GROUP
 #define GATE_GROUP "tunnelguard_desktop"
 #endif
+#ifndef CLAUDE_LINK
+#define CLAUDE_LINK "/Applications/Claude.app"
+#endif
 
 static int refuse(void) {
     fputs("TunnelGuard: could not enter the restricted Claude launch context\n", stderr);
@@ -24,6 +27,11 @@ static int refuse(void) {
 int main(int argc, char **argv) {
     (void)argv;
     if (argc != 1 || getuid() != 0 || geteuid() != 0) return refuse();
+
+    const char expected[] = GATE_DIRECTORY "/Claude.app";
+    char target[sizeof expected];
+    ssize_t length = readlink(CLAUDE_LINK, target, sizeof target);
+    if (length != (ssize_t)(sizeof expected - 1) || memcmp(target, expected, sizeof expected - 1)) return refuse();
 
     const char *rawUID = getenv("SUDO_UID");
     char *end = NULL;

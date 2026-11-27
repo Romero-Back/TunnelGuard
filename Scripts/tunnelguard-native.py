@@ -163,8 +163,6 @@ def clear_session(ready_file):
 
 
 def request_gated_launch(mode, addresses, ready_file):
-    if not APP_BUNDLE.is_symlink() or os.readlink(APP_BUNDLE) != str(GATE_DIRECTORY / "Claude.app"):
-        raise OSError("The original Claude shortcut no longer points to the restricted copy")
     if ready_file is not None and ready_file != control.SUPPORT / "native-session.json":
         raise OSError("Unexpected session record path")
     body = {"mode": mode, "expected": [str(address) for address in addresses],
