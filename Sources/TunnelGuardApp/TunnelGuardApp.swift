@@ -70,6 +70,10 @@ private struct SimpleLauncher: View {
             Image(systemName: "lock.shield.fill")
                 .font(.system(size: 30, weight: .medium))
                 .foregroundStyle(.secondary)
+                .overlay {
+                    VerificationPulse(checkedAt: model.paused ? nil : model.lastVerifiedAt, tint: model.accent.color)
+                        .frame(width: 70, height: 70)
+                }
                 .accessibilityHidden(true)
             Text("Claude Desktop").font(.title2.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)

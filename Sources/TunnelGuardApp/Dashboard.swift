@@ -172,6 +172,8 @@ struct Dashboard: View {
                 Circle().fill(accent.opacity(0.11)).frame(width: 100, height: 100)
                 Circle().strokeBorder(accent.opacity(0.30)).frame(width: 84, height: 84)
                 Circle().fill(accent.opacity(0.13)).frame(width: 66, height: 66)
+                VerificationPulse(checkedAt: healthy ? model.lastVerifiedAt : nil, tint: accent)
+                    .frame(width: 100, height: 100)
                 Image(systemName: healthy ? "checkmark.shield.fill" : "shield.lefthalf.filled")
                     .font(.system(size: 36, weight: .medium)).foregroundStyle(healthy ? accent : .secondary)
             }

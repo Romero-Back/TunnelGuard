@@ -221,6 +221,11 @@ final class DesktopModel: ObservableObject {
         saveAddresses()
     }
 
+    var lastVerifiedAt: Date? {
+        guard case .connected = networkState else { return nil }
+        return lastChecked
+    }
+
     var hasSession: Bool { activePID != nil }
     var canCheckNetwork: Bool { !paused && operation == nil && filterConfigured && !effectiveAddresses.isEmpty }
     var canOpenDesktop: Bool {
