@@ -16,22 +16,38 @@ def test(dll, probe):
     wfp = Firewall(dll)
     permit = wintypes.HANDLE()
 
-    def connect(port):
-        return subprocess.run([str(probe), str(port)], timeout=5).returncode
+    def connect(port, *arguments):
+        return subprocess.run([str(probe), str(port), *arguments], timeout=5).returncode
 
-    with socket.socket() as local, socket.socket() as other:
+    with socket.socket() as local, socket.socket() as other, \
+         socket.socket(socket.AF_INET6) as ipv6, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
         for listener in (local, other):
             listener.bind(("127.0.0.1", 0))
             listener.listen(16)
         allowed = local.getsockname()[1]
         denied = other.getsockname()[1]
-        assert connect(allowed) == 0 and connect(denied) == 0, "baseline TCP failed"
+        ipv6.bind(("::1", 0))
+        ipv6.listen(8)
+        ipv6_port = ipv6.getsockname()[1]
+        udp.bind(("127.0.0.1", allowed))
+        udp.settimeout(1)
+        assert connect(allowed) == 0 and connect(denied) == 0, "baseline IPv4 TCP failed"
+        assert connect(ipv6_port, "ipv6") == 0, "baseline IPv6 TCP failed"
+        assert connect(allowed, "udp") == 0 and udp.recv(16) == b"t", "baseline UDP failed"
         wfp.require(wfp.lock(str(probe)), "apply persistent blocks")
         try:
             wfp.require(wfp.status(str(probe)), "verify persistent blocks")
             assert connect(allowed) == 1 and connect(denied) == 1, "persistent block did not apply"
             wfp.require(wfp.allow(str(probe), allowed, ctypes.byref(permit)), "add narrow proxy permit")
             assert connect(allowed) == 0 and connect(denied) == 1, "proxy permit was not scoped to one port"
+            assert connect(ipv6_port, "ipv6") == 1, "IPv6 remained available"
+            connect(allowed, "udp")
+            try:
+                udp.recv(16)
+            except TimeoutError:
+                pass
+            else:
+                raise AssertionError("the TCP permit leaked UDP on the same port")
             wfp.require(wfp.close(permit), "release proxy permit")
             permit = wintypes.HANDLE()
             assert connect(allowed) == 1, "closing the WFP session did not restore blocking"

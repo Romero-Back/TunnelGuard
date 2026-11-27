@@ -47,6 +47,7 @@ class Firewall:
             "allow": [word, ctypes.c_uint16, pointer], "close": [wintypes.HANDLE],
             "route": [word, ctypes.POINTER(number)],
             "interface": [number, ctypes.POINTER(ctypes.c_uint64)],
+            "interface_name": [number, word, ctypes.c_size_t],
             "launch": [word, word, pointer],
         }
         for name, args in signatures.items():
@@ -194,7 +195,9 @@ class App(tk.Tk):
         try:
             index = self.firewall.route_index(guard.DOH_ADDRESSES[0])
             self.index.set(str(index))
-            self.status.set(f"Текущий маршрут: интерфейс {index}. Сверь его с адаптером VPN.")
+            alias = ctypes.create_unicode_buffer(257)
+            self.firewall.require(self.firewall.interface_name(index, alias, len(alias)), "Имя интерфейса недоступно")
+            self.status.set(f"Текущий маршрут: {alias.value} (индекс {index}). Сверь его с адаптером VPN.")
         except OSError as error:
             self.status.set(str(error))
 
@@ -321,6 +324,7 @@ def main():
         return
     firewall.kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
     firewall.kernel.CreateMutexW.restype = wintypes.HANDLE
+    ctypes.set_last_error(0)
     instance = firewall.kernel.CreateMutexW(None, False, "Local\\TunnelGuardWindowsPreview")
     if not instance or ctypes.get_last_error() == 183:
         if instance:

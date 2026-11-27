@@ -1,5 +1,8 @@
 # TunnelGuard на macOS
 
+Для Windows 11 x64 доступна [экспериментальная сборка](Windows/README.md).
+
+
 TunnelGuard — локальный kill switch для обычного Claude Desktop на macOS. Он запускает Claude с отдельными сетевыми правилами, которые пропускают его соединения только через V2Pro.
 
 ## Обычный Claude Desktop на Mac

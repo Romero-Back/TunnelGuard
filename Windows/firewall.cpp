@@ -206,6 +206,12 @@ extern "C" __declspec(dllexport) DWORD tg_interface(ULONG index, UINT64* identif
     return result;
 }
 
+extern "C" __declspec(dllexport) DWORD tg_interface_name(ULONG index, wchar_t* alias, size_t size) {
+    NET_LUID luid{};
+    const auto result = ConvertInterfaceIndexToLuid(index, &luid);
+    return result ? result : ConvertInterfaceLuidToAlias(&luid, alias, size);
+}
+
 extern "C" __declspec(dllexport) DWORD tg_launch(const wchar_t* executable, wchar_t* command, HANDLE* session) {
     DWORD pid = 0;
     if (!GetWindowThreadProcessId(GetShellWindow(), &pid)) return ERROR_NOT_FOUND;
