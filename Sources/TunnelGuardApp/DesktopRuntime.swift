@@ -13,7 +13,13 @@ struct DesktopSnapshot: Sendable {
     let exitStatus: Int?
 }
 
+enum DesktopGateState: Sendable {
+    case off, invalid, installed
+}
+
 struct DesktopRuntime: Sendable {
+    private let ordinaryBundle = "/Applications/Claude.app"
+    private let gateDirectory = "/private/var/db/tunnelguard-desktop"
     private let label = "app.tunnelguard.native"
     private let support = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/TunnelGuard", isDirectory: true)
@@ -31,8 +37,29 @@ struct DesktopRuntime: Sendable {
         FileManager.default.fileExists(atPath: "/Library/LaunchDaemons/app.tunnelguard.native-filter.plist")
     }
 
-    var desktopGateConfigured: Bool {
-        FileManager.default.fileExists(atPath: "/private/var/db/tunnelguard-desktop")
+    var desktopGateState: DesktopGateState {
+        var directory = stat()
+        if lstat(gateDirectory, &directory) != 0 {
+            return errno == ENOENT ? .off : .invalid
+        }
+
+        let target = gateDirectory + "/Claude.app"
+        var bundle = stat()
+        var helper = stat()
+        var rule = stat()
+        guard directory.st_uid == 0, directory.st_mode & S_IFMT == S_IFDIR,
+              directory.st_mode & 0o022 == 0,
+              lstat(target, &bundle) == 0, bundle.st_uid == 0,
+              bundle.st_mode & S_IFMT == S_IFDIR, bundle.st_mode & 0o027 == 0,
+              lstat(gateDirectory + "/launch", &helper) == 0, helper.st_uid == 0,
+              helper.st_mode & S_IFMT == S_IFREG, helper.st_mode & 0o022 == 0,
+              lstat("/private/etc/sudoers.d/tunnelguard-desktop", &rule) == 0, rule.st_uid == 0,
+              rule.st_mode & S_IFMT == S_IFREG, rule.st_mode & 0o022 == 0,
+              (try? FileManager.default.destinationOfSymbolicLink(atPath: ordinaryBundle)) == target else {
+            return .invalid
+        }
+        let executable = ordinaryBundle + "/Contents/MacOS/Claude"
+        return access(executable, X_OK) == -1 && errno == EACCES ? .installed : .invalid
     }
 
     func configureDesktopGate(_ enabled: Bool) throws {
@@ -60,7 +87,7 @@ struct DesktopRuntime: Sendable {
         if let record, record.pid == pid, record.appPid > 1 {
             var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
             let count = proc_pidpath(record.appPid, &path, UInt32(path.count))
-            let expected = desktopGateConfigured ? "/private/var/db/tunnelguard-desktop/Claude.app/Contents/MacOS/Claude" :
+            let expected = desktopGateState != .off ? "/private/var/db/tunnelguard-desktop/Claude.app/Contents/MacOS/Claude" :
                 "/Applications/Claude.app/Contents/MacOS/Claude"
             if count > 0, String(cString: path) == expected {
                 return DesktopSnapshot(pid: pid, session: record, exitStatus: job?.status)
@@ -70,6 +97,7 @@ struct DesktopRuntime: Sendable {
     }
 
     func start(expectedIPv4: [String]) throws -> (session: DesktopSession, address: String) {
+        guard desktopGateState == .installed else { throw DesktopError.gateUnverified }
         guard try snapshot().pid == nil else { throw DesktopError.alreadyRunning }
         let program = launcher
         guard let executable = program.first, FileManager.default.fileExists(atPath: executable) else {
@@ -80,7 +108,7 @@ struct DesktopRuntime: Sendable {
         let job: [String: Any] = [
             "Label": label, "RunAtLoad": true,
             "ProgramArguments": program + expectedIPv4.flatMap { ["--expected-egress", $0] }
-                + ["--ready-file", sessionFile.path],
+                + ["--require-gate", "--ready-file", sessionFile.path],
             "StandardOutPath": "/dev/null", "StandardErrorPath": "/dev/null",
         ]
         let plist = try PropertyListSerialization.data(fromPropertyList: job, format: .xml, options: 0)
@@ -118,8 +146,10 @@ struct DesktopRuntime: Sendable {
         throw DesktopError.stopFailed
     }
 
-    func check(expectedIPv4: [String]) throws -> String {
-        let program = launcher + ["--probe"] + expectedIPv4.flatMap { ["--expected-egress", $0] }
+    func check(expectedIPv4: [String], requireGate: Bool = false) throws -> String {
+        if requireGate && desktopGateState != .installed { throw DesktopError.gateUnverified }
+        let program = launcher + ["--probe"] + (requireGate ? ["--require-gate"] : [])
+            + expectedIPv4.flatMap { ["--expected-egress", $0] }
         guard let executable = program.first,
               let output = try? command(executable, Array(program.dropFirst()), capture: true),
               let address = output.split(whereSeparator: \.isNewline).last.map(String.init),
@@ -205,13 +235,14 @@ struct DesktopRuntime: Sendable {
 }
 
 enum DesktopError: LocalizedError {
-    case alreadyRunning, missingResources, networkBlocked, startFailed, openFailed, stopFailed, commandFailed
+    case alreadyRunning, missingResources, networkBlocked, gateUnverified, startFailed, openFailed, stopFailed, commandFailed
 
     var errorDescription: String? {
         switch self {
         case .alreadyRunning: "Защищённый сеанс Claude уже запущен."
         case .missingResources: "В сборке отсутствует запускатор Claude."
         case .networkBlocked: "Проверь подключение V2Pro и разрешённые IPv4, затем попробуй снова."
+        case .gateUnverified: "Ограничение прямого запуска не подтверждено. Проверь настройки Claude Desktop."
         case .startFailed: "Claude не открылся. Проверь, закрыт ли обычный Claude и активен ли сетевой фильтр."
         case .openFailed: "Не удалось открыть окно Claude. Проверь состояние сеанса и попробуй снова."
         case .stopFailed: "Не удалось подтвердить остановку сеанса."

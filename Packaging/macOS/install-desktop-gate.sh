@@ -98,6 +98,12 @@ case "$action" in
         /bin/mv "$app" "$backup"
         /bin/ln -s "$entry" "$app"
         linked=yes
+        # Evaluate the access as the ordinary console user before reporting success.
+        # Testing directory traversal is side-effect-free and cannot open Claude.
+        if ! /usr/bin/sudo -n -u "$account" /bin/sh -c 'test ! -x "$1"' sh "$app/Contents/MacOS/Claude"; then
+            echo "TG_GATE_DIRECT_ACCESS" >&2
+            exit 1
+        fi
         trap - EXIT
         ;;
     *) exit 1;;

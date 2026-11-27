@@ -87,7 +87,7 @@ final class DesktopModel: ObservableObject {
     @Published private(set) var lastChecked: Date?
     @Published private(set) var error: String?
     @Published private(set) var filterConfigured = false
-    @Published private(set) var desktopGateConfigured = false
+    @Published private(set) var desktopGateState: DesktopGateState = .off
 
     @Published private(set) var observation: NetworkObservation?
     @Published private(set) var observedAt: Date?
@@ -219,7 +219,7 @@ final class DesktopModel: ObservableObject {
             events = (try? JSONDecoder().decode([GuardEvent].self, from: data)) ?? []
         }
         filterConfigured = runtime.filterConfigured
-        desktopGateConfigured = runtime.desktopGateConfigured
+        desktopGateState = runtime.desktopGateState
         saveAddresses()
     }
 
@@ -231,7 +231,7 @@ final class DesktopModel: ObservableObject {
     var hasSession: Bool { activePID != nil }
     var canCheckNetwork: Bool { !paused && operation == nil && filterConfigured && !effectiveAddresses.isEmpty }
     var canOpenDesktop: Bool {
-        canCheckNetwork && !filterStalled && observation?.filter == .healthy && observation?.routeIPv4 == true &&
+        desktopGateState == .installed && canCheckNetwork && !filterStalled && observation?.filter == .healthy && observation?.routeIPv4 == true &&
             (!hasSession || session != nil)
     }
     var effectiveAddresses: [String] {
@@ -299,7 +299,8 @@ final class DesktopModel: ObservableObject {
     func refresh() {
         guard operation == nil, !refreshing else { return }
         if filterConfigured != runtime.filterConfigured { filterConfigured = runtime.filterConfigured }
-        if desktopGateConfigured != runtime.desktopGateConfigured { desktopGateConfigured = runtime.desktopGateConfigured }
+        let gate = runtime.desktopGateState
+        if desktopGateState != gate { desktopGateState = gate }
         refreshing = true
         let runtime = self.runtime
         Task {
@@ -327,7 +328,7 @@ final class DesktopModel: ObservableObject {
             do {
                 if let currentSession {
                     let result = try await Task.detached {
-                        let address = try runtime.check(expectedIPv4: addresses)
+                        let address = try runtime.check(expectedIPv4: addresses, requireGate: true)
                         return (address: address, sessionMatches: try runtime.snapshot().session == currentSession)
                     }.value
                     finishNetworkCheck(address: result.address)
@@ -410,7 +411,7 @@ final class DesktopModel: ObservableObject {
 
     func configureDesktopGate() {
         guard !hasSession, operation == nil else { return }
-        let enabled = !desktopGateConfigured
+        let enabled = desktopGateState == .off
         guard !enabled || canCheckNetwork else { return }
         let addresses = effectiveAddresses
         let runtime = self.runtime
@@ -418,20 +419,27 @@ final class DesktopModel: ObservableObject {
         error = nil
         Task {
             do {
-                try await Task.detached {
+                let verified = try await Task.detached {
                     if enabled { _ = try runtime.check(expectedIPv4: addresses) }
                     try runtime.configureDesktopGate(enabled)
+                    return enabled ? try runtime.check(expectedIPv4: addresses, requireGate: true) : nil
                 }.value
-                record(enabled ? "Запуск Claude ограничен TunnelGuard" : "Обычный запуск Claude восстановлен")
+                if let verified {
+                    finishNetworkCheck(address: verified)
+                    record("Запуск Claude ограничен TunnelGuard")
+                } else {
+                    networkState = .unchecked
+                    lastChecked = nil
+                    record("Обычный запуск Claude восстановлен")
+                }
             } catch {
-                self.error = "Не удалось изменить ограничение запуска. Закрой Claude и проверь состояние защиты."
+                networkState = .unchecked
+                lastChecked = nil
+                self.error = "Не удалось подтвердить ограничение запуска. Проверь, закрыт ли Claude, и повтори настройку."
             }
-            desktopGateConfigured = runtime.desktopGateConfigured
-            networkState = .unchecked
-            lastChecked = nil
+            desktopGateState = runtime.desktopGateState
             operation = nil
             refresh()
-            if error == nil { checkNetwork() }
         }
     }
 

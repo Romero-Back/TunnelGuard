@@ -177,9 +177,11 @@ def request_gated_launch(mode, addresses, ready_file):
         clear_session(ready_file)
 
 
-def run(mode, policy, ready_file):
+def run(mode, policy, ready_file, *, require_gate=False):
     if os.path.lexists(GATE_DIRECTORY):
         return request_gated_launch(mode, policy.expected, ready_file)
+    if require_gate:
+        raise OSError("The restricted launch helper is missing")
     if not Path(APP).is_file():
         raise OSError("Claude.app is missing from /Applications")
     if mode == "session":
@@ -240,6 +242,7 @@ def main():
     parser.add_argument("--expected-egress", action="append", required=True, type=guard.expected_egress,
                         help="permitted VPN IPv4, repeat to allow more than one")
     parser.add_argument("--ready-file", type=Path)
+    parser.add_argument("--require-gate", action="store_true")
     args = parser.parse_args()
     if sys.platform != "darwin" or os.geteuid() == 0:
         parser.error("requires an unprivileged macOS user")
@@ -252,7 +255,7 @@ def main():
     def require_access():
         control.require_access(generation)
     return run(mode, guard.EgressPolicy(args.expected_egress, access_check=require_access),
-               args.ready_file if mode == "session" else None)
+               args.ready_file if mode == "session" else None, require_gate=args.require_gate)
 
 
 if __name__ == "__main__":

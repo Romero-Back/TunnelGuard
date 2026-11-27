@@ -52,6 +52,9 @@ private struct SimpleLauncher: View {
 
     private var hint: String {
         if let error = model.error { return error }
+        if model.desktopGateState != .installed {
+            return "Ограничение прямого запуска не подтверждено. Открой «Настройки → Claude Desktop» в экспертном режиме."
+        }
         if model.observation == nil { return "Проверяем состояние защиты…" }
         if model.addresses.isEmpty || !model.filterConfigured {
             return "Для первого запуска настрой защиту в экспертном режиме."
@@ -71,7 +74,10 @@ private struct SimpleLauncher: View {
                 .font(.system(size: 30, weight: .medium))
                 .foregroundStyle(.secondary)
                 .overlay {
-                    VerificationPulse(checkedAt: model.paused ? nil : model.lastVerifiedAt, tint: model.accent.color)
+                    VerificationPulse(
+                        checkedAt: model.desktopGateState == .installed && !model.paused ? model.lastVerifiedAt : nil,
+                        tint: model.accent.color
+                    )
                         .frame(width: 70, height: 70)
                 }
                 .accessibilityHidden(true)

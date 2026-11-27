@@ -51,6 +51,14 @@ class DesktopGateTests(unittest.TestCase):
             native.gated_request(self.request())
             run.assert_called_once_with(native.GATED_APP, [native.GATED_APP])
 
+    def test_required_gate_missing_refuses_before_legacy_launcher(self):
+        expected = native.guard.expected_egress("8.8.8.8")
+        with patch.object(native.os.path, "lexists", return_value=False), \
+             patch.object(native.Path, "is_file") as legacy:
+            with self.assertRaisesRegex(OSError, "restricted launch helper is missing"):
+                native.run("session", native.guard.EgressPolicy([expected]), None, require_gate=True)
+            legacy.assert_not_called()
+
     def test_installed_gate_never_falls_back_to_the_legacy_launcher(self):
         expected = native.guard.expected_egress("8.8.8.8")
         with patch.object(native.os.path, "lexists", return_value=True), \

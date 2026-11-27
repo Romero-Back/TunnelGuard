@@ -167,15 +167,16 @@ struct Dashboard: View {
     }
 
     private var hero: some View {
-        HStack(spacing: 20) {
+        let ready = healthy && model.desktopGateState == .installed
+        return HStack(spacing: 20) {
             ZStack {
                 Circle().fill(accent.opacity(0.11)).frame(width: 100, height: 100)
                 Circle().strokeBorder(accent.opacity(0.30)).frame(width: 84, height: 84)
                 Circle().fill(accent.opacity(0.13)).frame(width: 66, height: 66)
-                VerificationPulse(checkedAt: healthy ? model.lastVerifiedAt : nil, tint: accent)
+                VerificationPulse(checkedAt: ready ? model.lastVerifiedAt : nil, tint: accent)
                     .frame(width: 100, height: 100)
-                Image(systemName: healthy ? "checkmark.shield.fill" : "shield.lefthalf.filled")
-                    .font(.system(size: 36, weight: .medium)).foregroundStyle(healthy ? accent : .secondary)
+                Image(systemName: ready ? "checkmark.shield.fill" : "shield.lefthalf.filled")
+                    .font(.system(size: 36, weight: .medium)).foregroundStyle(ready ? accent : .secondary)
             }
             .accessibilityHidden(true)
 
@@ -196,15 +197,16 @@ struct Dashboard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 16)
-                .fill(LinearGradient(colors: [accent.opacity(healthy ? 0.18 : 0.07), accent.opacity(0.03)],
+                .fill(LinearGradient(colors: [accent.opacity(ready ? 0.18 : 0.07), accent.opacity(0.03)],
                                      startPoint: .topLeading, endPoint: .bottomTrailing))
         }
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(accent.opacity(0.20)))
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: healthy)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: ready)
     }
 
     private var heroTitle: String {
         if model.observation?.paused == true { return "Доступ приостановлен" }
+        if model.desktopGateState != .installed { return "Запуск Claude требует настройки" }
         if model.observation == nil { return "Проверяем защиту" }
         if healthy, case .connected = model.networkState { return "Защищённый выход подтверждён" }
         return healthy ? "V2Pro под наблюдением" : "Защита требует внимания"
@@ -213,6 +215,8 @@ struct Dashboard: View {
     private var heroDetail: String {
         if model.emergencyAction { return "Выполняется аварийное действие." }
         if model.observation?.paused == true { return "Новые защищённые запуски заблокированы, пока доступ не восстановлен." }
+        if model.desktopGateState == .off { return "Прямой запуск Claude доступен. Ограничь его в разделе «Настройки → Claude Desktop»." }
+        if model.desktopGateState == .invalid { return "TunnelGuard не подтвердил системное ограничение. Проверь раздел «Настройки → Claude Desktop»." }
         if model.observation == nil { return "Проверяем маршрут V2Pro и состояние службы PF." }
         if model.observation?.paused == nil { return "Состояние аварийной блокировки недоступно. Запуск приостановлен." }
         return healthy ? "Система видит маршрут V2Pro. TunnelGuard проверит выход и фильтр перед открытием Claude." :
@@ -290,7 +294,9 @@ struct Dashboard: View {
 
     private var apps: some View {
         panel("Защищаемые приложения", icon: "square.stack") {
-            appRow("Claude Desktop", icon: "macwindow", status: model.status, active: model.session != nil) {
+            appRow("Claude Desktop", icon: "macwindow",
+                   status: model.desktopGateState == .installed ? model.status : "Ограничение запуска не подтверждено",
+                   active: model.session != nil) {
                 if !model.filterConfigured {
                     Button("Настроить PF", action: model.installFilter).disabled(model.operation != nil)
                 } else if model.addresses.isEmpty {

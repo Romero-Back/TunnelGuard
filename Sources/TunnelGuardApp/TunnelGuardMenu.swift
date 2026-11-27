@@ -21,9 +21,8 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         item.menu = menu
         statusItem = item
-        observation = model.$observation.combineLatest(model.$filterStalled).sink { [weak self] state, stalled in
-            self?.updateIcon(state, stalled: stalled)
-        }
+        observation = model.$observation.combineLatest(model.$filterStalled, model.$desktopGateState)
+            .sink { [weak self] state, stalled, gate in self?.updateIcon(state, stalled: stalled, gate: gate) }
         model.beginMonitoring()
         if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil {
             updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
@@ -32,8 +31,8 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    private func updateIcon(_ state: NetworkObservation?, stalled: Bool) {
-        let ready = state?.paused == false && state?.routeIPv4 == true && state?.filter == .healthy && !stalled
+    private func updateIcon(_ state: NetworkObservation?, stalled: Bool, gate: DesktopGateState) {
+        let ready = gate == .installed && state?.paused == false && state?.routeIPv4 == true && state?.filter == .healthy && !stalled
         let icon = ready ? "lock.shield" : "shield.slash"
         statusItem?.button?.image = NSImage(systemSymbolName: icon, accessibilityDescription: "TunnelGuard")
     }
@@ -43,6 +42,7 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let status: String
         if model.observation == nil { status = "Проверяем состояние защиты…" }
         else if model.observation?.paused == true { status = "Доступ приостановлен" }
+        else if model.desktopGateState != .installed { status = "Запуск Claude требует настройки" }
         else if model.filterStalled || model.observation?.filter != .healthy { status = "Состояние PF требует внимания" }
         else if model.observation?.routeIPv4 == true { status = "Маршрут V2Pro обнаружен" }
         else { status = "Маршрут V2Pro не подтверждён" }

@@ -65,14 +65,21 @@ struct PreferencesView: View {
     private var desktopGateTab: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Запуск только через TunnelGuard").font(.headline)
-            Text(model.desktopGateConfigured ? "Прямой запуск установленной копии ограничен." :
-                "Прямой запуск установленной копии Claude из Finder и Dock будет заблокирован.")
-                .foregroundStyle(.secondary)
+            switch model.desktopGateState {
+            case .off:
+                Label("Прямой запуск Claude сейчас доступен", systemImage: "exclamationmark.shield")
+                    .foregroundStyle(.orange)
+            case .invalid:
+                Label("Ограничение запуска повреждено или не закончено", systemImage: "exclamationmark.shield")
+                    .foregroundStyle(.orange)
+            case .installed:
+                Label("Прямой запуск установленной копии ограничен", systemImage: "lock.shield")
+            }
             Text("Перед изменением закрой Claude. macOS запросит права администратора. Для обновления Claude сначала восстанови обычный запуск.")
                 .foregroundStyle(.secondary)
-            Button(model.desktopGateConfigured ? "Восстановить обычный запуск" : "Ограничить прямой запуск",
+            Button(model.desktopGateState == .off ? "Ограничить прямой запуск" : "Восстановить обычный запуск",
                    action: model.configureDesktopGate)
-                .disabled(model.hasSession || model.operation != nil || (!model.desktopGateConfigured && !model.canCheckNetwork))
+                .disabled(model.hasSession || model.operation != nil || (model.desktopGateState == .off && !model.canCheckNetwork))
             if let error = model.error {
                 Text(error).foregroundStyle(.orange)
             }
