@@ -8,6 +8,13 @@ final class DesktopModel: ObservableObject {
     enum Operation { case settingUp, opening, checkingNetwork, stopping }
     enum NetworkState: Equatable { case unchecked, checking, connected(String), blocked }
 
+    enum InterfaceMode: String, CaseIterable, Identifiable {
+        case simple, expert
+
+        var id: Self { self }
+        var title: String { self == .simple ? "Простой" : "Экспертный" }
+    }
+
     enum Appearance: String, CaseIterable, Identifiable {
         case system, light, dark
 
@@ -63,6 +70,9 @@ final class DesktopModel: ObservableObject {
     private var refreshing = false
     @Published private(set) var addresses: [String]
     @Published var selectedAddress: String? { didSet { saveAddresses() } }
+    @Published var interfaceMode: InterfaceMode {
+        didSet { defaults.set(interfaceMode.rawValue, forKey: "interfaceMode") }
+    }
     @Published var appearance: Appearance { didSet { defaults.set(appearance.rawValue, forKey: "appearance") } }
     @Published var accent: Accent { didSet { defaults.set(accent.rawValue, forKey: "accent") } }
     @Published var section: Section? = .overview
@@ -201,6 +211,7 @@ final class DesktopModel: ObservableObject {
         let allowed = stored.compactMap(Self.publicIPv4)
         addresses = allowed
         selectedAddress = defaults.string(forKey: "selectedIPv4").flatMap { allowed.contains($0) ? $0 : nil }
+        interfaceMode = defaults.string(forKey: "interfaceMode").flatMap(InterfaceMode.init(rawValue:)) ?? .expert
         appearance = defaults.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system
         accent = defaults.string(forKey: "accent").flatMap(Accent.init(rawValue:)) ?? .mint
         if let data = defaults.data(forKey: "guardEvents") {

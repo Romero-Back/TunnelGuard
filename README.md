@@ -110,6 +110,12 @@ lab_dir=$(sh Packaging/macOS/build-lab.sh)
 
 Для подписанной сборки каждый профиль помещается в `Contents/embedded.provisionprofile` своего пакета. Расширение подписывается первым, контейнер вторым, с одним Team ID, Hardened Runtime и защищёнными метками времени. Затем сборка проходит нотарификацию. Для активации macOS проверяет подпись, размещение приложения в `/Applications` и запрашивает пользовательское одобрение при необходимости. `codesign`, `notarytool` и `stapler` уже доступны через Command Line Tools на этом Mac. [Профили подписи macOS](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles), [Подпись через командную строку](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac/), [Нотарификация](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution/), [Активация системных расширений](https://developer.apple.com/documentation/systemextensions/installing-system-extensions-and-drivers/).
 
+## Режимы окна и строка меню
+
+В меню «Интерфейс» доступны «Простой» и «Экспертный» режимы. Простой показывает одну кнопку запуска или открытия Claude Desktop. Экспертный открывает панель приложений, диагностику и настройки. Выбранный режим сохраняется локально.
+
+Значок щита в строке меню macOS остаётся доступен после закрытия окна. Через него можно открыть TunnelGuard, запустить Claude Desktop, сменить режим, проверить сеть и выполнить аварийную остановку.
+
 ## Панель наблюдения и CLI
 
 На главной отображаются наблюдаемый маршрут, состояние службы PF, управляемые сеансы и последние события. В разделе «Маршруты» можно выбрать каждый узел схемы. «Диагностика» проверяет совместимость текущего подключения V2Pro и показывает его отпечаток. Тест утечек проверяет прямой TCP по IPv4 и IPv6 к контрольным локальным портам.

@@ -1,37 +1,5 @@
 import SwiftUI
 
-@main
-struct TunnelGuardApp: App {
-    @StateObject private var model = DesktopModel()
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some Scene {
-        Window("TunnelGuard", id: "main") {
-            Dashboard(model: model)
-                .frame(minWidth: 680, minHeight: 500)
-                .preferredColorScheme(model.appearance.colorScheme)
-                .onAppear(perform: model.beginMonitoring)
-        }
-        .defaultSize(width: 1110, height: 770)
-        .windowResizability(.contentMinSize)
-
-        MenuBarExtra("TunnelGuard", systemImage: model.paused ? "shield.slash" : "lock.shield") {
-            Text(model.paused ? "Защита: требуется внимание" : model.observation?.routeIPv4 == true ?
-                 "Маршрут V2Pro обнаружен" : "Маршрут V2Pro не подтверждён")
-            Button("Открыть TunnelGuard") {
-                openWindow(id: "main")
-                if #available(macOS 14, *) { NSApp.activate() }
-                else { NSApp.activate(ignoringOtherApps: true) }
-            }
-            Button("Проверить сеть", action: model.checkNetwork).disabled(!model.canCheckNetwork)
-            Divider()
-            Button("Аварийная остановка", action: model.pause).disabled(model.emergencyAction)
-            Button("Разрешить новые запуски", action: model.resume)
-                .disabled(model.observation?.paused != true || model.emergencyAction)
-        }
-    }
-}
-
 enum Section: String, CaseIterable, Identifiable {
     case overview, apps, routes, doctor, journal, settings
     var id: Self { self }
@@ -80,7 +48,7 @@ enum RouteStep: String, CaseIterable, Identifiable {
     }
 }
 
-private struct Dashboard: View {
+struct Dashboard: View {
     @ObservedObject var model: DesktopModel
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

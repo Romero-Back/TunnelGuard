@@ -63,6 +63,11 @@ struct PreferencesView: View {
 
     private var appearanceTab: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Picker("Режим интерфейса", selection: $model.interfaceMode) {
+                ForEach(DesktopModel.InterfaceMode.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            Divider()
             Text("Тема TunnelGuard").font(.headline)
             Picker("Тема", selection: $model.appearance) {
                 ForEach(DesktopModel.Appearance.allCases) { Text($0.name).tag($0) }
