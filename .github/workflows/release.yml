@@ -34,6 +34,8 @@ jobs:
           python -B Tests/check_free_launcher.py -v
           python -B Tests/check_native_launcher.py -v
           python -B Tests/check_control.py -v
+          swiftc Sources/TunnelGuardApp/ReleaseUpdates.swift Tests/check_updates.swift -o "$RUNNER_TEMP/check_updates"
+          "$RUNNER_TEMP/check_updates"
           swift build -c release --product tunnelguard-check-profile
           python -B Tests/check_profile.py "$(swift build -c release --show-bin-path)/tunnelguard-check-profile"
           sh -n Packaging/macOS/install-native-filter.sh

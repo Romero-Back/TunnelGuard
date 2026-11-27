@@ -110,6 +110,12 @@ lab_dir=$(sh Packaging/macOS/build-lab.sh)
 
 Для подписанной сборки каждый профиль помещается в `Contents/embedded.provisionprofile` своего пакета. Расширение подписывается первым, контейнер вторым, с одним Team ID, Hardened Runtime и защищёнными метками времени. Затем сборка проходит нотарификацию. Для активации macOS проверяет подпись, размещение приложения в `/Applications` и запрашивает пользовательское одобрение при необходимости. `codesign`, `notarytool` и `stapler` уже доступны через Command Line Tools на этом Mac. [Профили подписи macOS](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles), [Подпись через командную строку](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac/), [Нотарификация](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution/), [Активация системных расширений](https://developer.apple.com/documentation/systemextensions/installing-system-extensions-and-drivers/).
 
+## Обновления
+
+Начиная с 0.5.2, команда «Проверить обновления…» доступна в меню TunnelGuard и под значком щита. При запуске приложение проверяет GitHub Releases в фоне, если с последней успешной проверки прошло больше суток. Ссылка на новую версию появляется в меню щита.
+
+Для установки открой релиз, скачай DMG и замени TunnelGuard в папке «Программы». На странице релиза доступна контрольная сумма SHA-256 для проверки скачанного образа.
+
 ## Режимы окна и строка меню
 
 В меню «Интерфейс» доступны «Простой» и «Экспертный» режимы. Простой показывает одну кнопку запуска или открытия Claude Desktop. Экспертный открывает панель приложений, диагностику и настройки. Выбранный режим сохраняется локально.

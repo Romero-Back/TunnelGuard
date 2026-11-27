@@ -16,6 +16,9 @@ struct TunnelGuardApp: App {
         .defaultSize(width: 1110, height: 770)
         .windowResizability(.contentSize)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Проверить обновления…", action: menu.checkForUpdates)
+            }
             CommandMenu("Интерфейс") {
                 ForEach(DesktopModel.InterfaceMode.allCases) { mode in
                     Button("\(mode.title) режим") { menu.useMode(mode) }

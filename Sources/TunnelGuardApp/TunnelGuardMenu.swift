@@ -8,6 +8,9 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var statusItem: NSStatusItem?
     private var observation: AnyCancellable?
+    private var updateCheck: Task<Void, Never>?
+    private var availableUpdate: ReleaseUpdates.Update?
+    private let lastCheckKey = "lastAutomaticUpdateCheck"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -23,6 +26,10 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.updateIcon(state, stalled: stalled)
         }
         model.beginMonitoring()
+        let lastCheck = UserDefaults.standard.object(forKey: lastCheckKey) as? Date ?? .distantPast
+        if Date().timeIntervalSince(lastCheck) > 24 * 60 * 60 {
+            checkUpdates(interactive: false)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -58,6 +65,10 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
             add("Разрешить новые запуски", to: menu, action: #selector(resume), enabled: !model.emergencyAction)
         }
         menu.addItem(.separator())
+        if let availableUpdate {
+            add("Скачать TunnelGuard \(availableUpdate.version)…", to: menu, action: #selector(openUpdatePage))
+        }
+        add("Проверить обновления…", to: menu, action: #selector(checkForUpdates), enabled: updateCheck == nil)
         add("Выход из TunnelGuard", to: menu, action: #selector(quit))
     }
 
@@ -80,6 +91,51 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if #available(macOS 14, *) { NSApp.activate() }
         else { NSApp.activate(ignoringOtherApps: true) }
         revealWindow?()
+    }
+
+    @objc func checkForUpdates() { checkUpdates(interactive: true) }
+
+    private func checkUpdates(interactive: Bool) {
+        guard updateCheck == nil else {
+            if interactive { showUpdateAlert("Проверяем обновления", detail: "Проверка уже выполняется.") }
+            return
+        }
+        let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        updateCheck = Task {
+            defer { updateCheck = nil }
+            do {
+                availableUpdate = try await ReleaseUpdates.check(currentVersion: current)
+                UserDefaults.standard.set(Date(), forKey: lastCheckKey)
+                guard interactive else { return }
+                if let availableUpdate {
+                    showUpdateAlert("Доступна версия \(availableUpdate.version)",
+                                    detail: "Открой релиз на GitHub, скачай DMG и замени приложение в папке «Программы».",
+                                    download: true)
+                } else {
+                    showUpdateAlert("Установлена актуальная версия", detail: "TunnelGuard \(current)")
+                }
+            } catch {
+                if interactive {
+                    showUpdateAlert("Не удалось проверить обновления", detail: "Проверь доступ к GitHub и попробуй ещё раз.")
+                }
+            }
+        }
+    }
+
+    @objc private func openUpdatePage() {
+        guard let availableUpdate else { return }
+        NSWorkspace.shared.open(availableUpdate.page)
+    }
+
+    private func showUpdateAlert(_ title: String, detail: String, download: Bool = false) {
+        if #available(macOS 14, *) { NSApp.activate() }
+        else { NSApp.activate(ignoringOtherApps: true) }
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        alert.addButton(withTitle: download ? "Открыть на GitHub" : "OK")
+        if download { alert.addButton(withTitle: "Позже") }
+        if alert.runModal() == .alertFirstButtonReturn && download { openUpdatePage() }
     }
 
     @objc private func useSimple() { useMode(.simple) }
