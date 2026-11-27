@@ -34,8 +34,6 @@ jobs:
           python -B Tests/check_free_launcher.py -v
           python -B Tests/check_native_launcher.py -v
           python -B Tests/check_control.py -v
-          swiftc Sources/TunnelGuardApp/ReleaseUpdates.swift Tests/check_updates.swift -o "$RUNNER_TEMP/check_updates"
-          "$RUNNER_TEMP/check_updates"
           swift build -c release --product tunnelguard-check-profile
           python -B Tests/check_profile.py "$(swift build -c release --show-bin-path)/tunnelguard-check-profile"
           sh -n Packaging/macOS/install-native-filter.sh
@@ -45,19 +43,40 @@ jobs:
           python -m pip install 'pyinstaller==6.22.3'
           export TUNNELGUARD_PYINSTALLER_PYTHON="$(command -v python)"
           app=$(sh Packaging/macOS/build-app.sh -c release)
-          codesign --verify --strict "$app"
+          codesign --verify --deep --strict "$app"
           "$app/Contents/Resources/NativeLauncher/tunnelguard-native" --help
           image="TunnelGuard-${GITHUB_REF_NAME}-macOS-arm64.dmg"
           sh Packaging/macOS/build-dmg.sh "$app" "$image"
           shasum -a 256 "$image" > "$image.sha256"
-      - name: Publish DMG and checksum
+      - name: Sign the update and appcast
+        env:
+          SPARKLE_ED25519: ${{ secrets.TUNNELGUARD_SPARKLE_ED25519 }}
+        run: |
+          set -eu
+          test -n "$SPARKLE_ED25519"
+          tools="$RUNNER_TEMP/sparkle-tools"
+          mkdir -p "$tools"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/sparkle-project/Sparkle/releases/download/2.10.1/Sparkle-2.10.1.tar.xz \
+            -o "$tools/Sparkle.tar.xz"
+          printf '%s  %s\n' 1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27 "$tools/Sparkle.tar.xz" | shasum -a 256 -c -
+          tar -xJf "$tools/Sparkle.tar.xz" -C "$tools" bin/generate_appcast
+          image="TunnelGuard-${GITHUB_REF_NAME}-macOS-arm64.dmg"
+          mkdir -p "$RUNNER_TEMP/updates"
+          cp "$image" "$RUNNER_TEMP/updates/"
+          printf '%s\n' "$SPARKLE_ED25519" | "$tools/bin/generate_appcast" --ed-key-file - --maximum-deltas 0 \
+            --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/" \
+            "$RUNNER_TEMP/updates"
+          install -m 644 "$RUNNER_TEMP/updates/appcast.xml" appcast.xml
+          grep -q 'sparkle:edSignature=' appcast.xml
+      - name: Publish DMG, checksum and appcast
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           image="TunnelGuard-${GITHUB_REF_NAME}-macOS-arm64.dmg"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$image" "$image.sha256" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$image" "$image.sha256" appcast.xml --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$image" "$image.sha256" --verify-tag --title "TunnelGuard $GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" "$image" "$image.sha256" appcast.xml --verify-tag --title "TunnelGuard $GITHUB_REF_NAME" --generate-notes
           fi

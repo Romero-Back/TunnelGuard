@@ -10,6 +10,9 @@ app="$bin_dir/TunnelGuard.app"
 resources="$app/Contents/Resources"
 
 mkdir -p "$app/Contents/MacOS" "$resources/Scripts"
+mkdir -p "$app/Contents/Frameworks"
+ditto "$bin_dir/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
+codesign --verify --deep --strict "$app/Contents/Frameworks/Sparkle.framework" >&2
 install -m 644 "$packaging_dir/TunnelGuard-Info.plist" "$app/Contents/Info.plist"
 install -m 755 "$bin_dir/TunnelGuardApp" "$app/Contents/MacOS/TunnelGuardApp"
 install -m 644 Scripts/tunnelguard-run.py Scripts/tunnelguard-native.py Scripts/tunnelguard-control.py "$resources/Scripts/"
