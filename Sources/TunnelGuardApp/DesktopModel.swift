@@ -87,6 +87,7 @@ final class DesktopModel: ObservableObject {
     @Published private(set) var lastChecked: Date?
     @Published private(set) var error: String?
     @Published private(set) var filterConfigured = false
+    @Published private(set) var desktopGateConfigured = false
 
     @Published private(set) var observation: NetworkObservation?
     @Published private(set) var observedAt: Date?
@@ -218,6 +219,7 @@ final class DesktopModel: ObservableObject {
             events = (try? JSONDecoder().decode([GuardEvent].self, from: data)) ?? []
         }
         filterConfigured = runtime.filterConfigured
+        desktopGateConfigured = runtime.desktopGateConfigured
         saveAddresses()
     }
 
@@ -297,6 +299,7 @@ final class DesktopModel: ObservableObject {
     func refresh() {
         guard operation == nil, !refreshing else { return }
         if filterConfigured != runtime.filterConfigured { filterConfigured = runtime.filterConfigured }
+        if desktopGateConfigured != runtime.desktopGateConfigured { desktopGateConfigured = runtime.desktopGateConfigured }
         refreshing = true
         let runtime = self.runtime
         Task {
@@ -403,6 +406,33 @@ final class DesktopModel: ObservableObject {
         }
         self.error = error.localizedDescription
         record("Проверка или запуск не завершились", warning: true)
+    }
+
+    func configureDesktopGate() {
+        guard !hasSession, operation == nil else { return }
+        let enabled = !desktopGateConfigured
+        guard !enabled || canCheckNetwork else { return }
+        let addresses = effectiveAddresses
+        let runtime = self.runtime
+        operation = .settingUp
+        error = nil
+        Task {
+            do {
+                try await Task.detached {
+                    if enabled { _ = try runtime.check(expectedIPv4: addresses) }
+                    try runtime.configureDesktopGate(enabled)
+                }.value
+                record(enabled ? "Запуск Claude ограничен TunnelGuard" : "Обычный запуск Claude восстановлен")
+            } catch {
+                self.error = "Не удалось изменить ограничение запуска. Закрой Claude и проверь состояние защиты."
+            }
+            desktopGateConfigured = runtime.desktopGateConfigured
+            networkState = .unchecked
+            lastChecked = nil
+            operation = nil
+            refresh()
+            if error == nil { checkNetwork() }
+        }
     }
 
     func installFilter() {

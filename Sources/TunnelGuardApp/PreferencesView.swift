@@ -10,6 +10,7 @@ struct PreferencesView: View {
             TabView {
                 vpnTab.disabled(model.operation != nil)
                     .tabItem { Label("VPN", systemImage: "network") }
+                desktopGateTab.tabItem { Label("Claude Desktop", systemImage: "lock.shield") }
                 appearanceTab.tabItem { Label("Оформление", systemImage: "paintbrush") }
             }
             .frame(height: 322)
@@ -55,6 +56,26 @@ struct PreferencesView: View {
                 ForEach(model.addresses, id: \.self) { Text($0).tag(Optional($0)) }
             }
             .disabled(model.addresses.isEmpty)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(16)
+    }
+
+    private var desktopGateTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Запуск только через TunnelGuard").font(.headline)
+            Text(model.desktopGateConfigured ? "Прямой запуск установленной копии ограничен." :
+                "Прямой запуск установленной копии Claude из Finder и Dock будет заблокирован.")
+                .foregroundStyle(.secondary)
+            Text("Перед изменением закрой Claude. macOS запросит права администратора. Для обновления Claude сначала восстанови обычный запуск.")
+                .foregroundStyle(.secondary)
+            Button(model.desktopGateConfigured ? "Восстановить обычный запуск" : "Ограничить прямой запуск",
+                   action: model.configureDesktopGate)
+                .disabled(model.hasSession || model.operation != nil || (!model.desktopGateConfigured && !model.canCheckNetwork))
+            if let error = model.error {
+                Text(error).foregroundStyle(.orange)
+            }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

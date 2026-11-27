@@ -16,10 +16,11 @@ codesign --verify --deep --strict "$app/Contents/Frameworks/Sparkle.framework" >
 install -m 644 "$packaging_dir/TunnelGuard-Info.plist" "$app/Contents/Info.plist"
 install -m 755 "$bin_dir/TunnelGuardApp" "$app/Contents/MacOS/TunnelGuardApp"
 install -m 644 Scripts/tunnelguard-run.py Scripts/tunnelguard-native.py Scripts/tunnelguard-control.py "$resources/Scripts/"
-install -m 644 "$packaging_dir/install-native-filter.sh" "$packaging_dir/refresh-native-pf.sh" "$resources/Scripts/"
+install -m 644 "$packaging_dir/install-native-filter.sh" "$packaging_dir/refresh-native-pf.sh" "$packaging_dir/install-desktop-gate.sh" "$resources/Scripts/"
 
 if [ -n "${TUNNELGUARD_PYINSTALLER_PYTHON:-}" ]; then
     sh "$packaging_dir/bundle-launcher.sh" "$resources/NativeLauncher"
+    /usr/bin/clang -Wall -Wextra -Werror -O2 "$packaging_dir/desktop-gate.c" -o "$resources/tunnelguard-desktop-gate"
 fi
 
 icon_dir=$(mktemp -d "${TMPDIR:-/tmp}/tunnelguard-icon.XXXXXX")

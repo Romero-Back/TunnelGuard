@@ -31,6 +31,23 @@ struct DesktopRuntime: Sendable {
         FileManager.default.fileExists(atPath: "/Library/LaunchDaemons/app.tunnelguard.native-filter.plist")
     }
 
+    var desktopGateConfigured: Bool {
+        FileManager.default.fileExists(atPath: "/private/var/db/tunnelguard-desktop")
+    }
+
+    func configureDesktopGate(_ enabled: Bool) throws {
+        let scripts = resources.appendingPathComponent("Scripts")
+        let script = try String(contentsOf: scripts.appendingPathComponent("install-desktop-gate.sh"), encoding: .utf8)
+        if enabled && !FileManager.default.isExecutableFile(atPath: resources.appendingPathComponent("tunnelguard-desktop-gate").path) {
+            throw DesktopError.missingResources
+        }
+        try authorize(
+            script, [enabled ? "enable" : "disable", NSUserName(), resources.path],
+            prompt: enabled ? "TunnelGuard ограничит прямой запуск установленной копии Claude Desktop." :
+                "TunnelGuard восстановит обычный запуск Claude Desktop."
+        )
+    }
+
     func snapshot() throws -> DesktopSnapshot {
         let jobs = try command("/bin/launchctl", ["list"], capture: true)
         let job = jobs.split(separator: "\n").lazy.compactMap { line -> (pid: Int?, status: Int?)? in
@@ -43,7 +60,9 @@ struct DesktopRuntime: Sendable {
         if let record, record.pid == pid, record.appPid > 1 {
             var path = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
             let count = proc_pidpath(record.appPid, &path, UInt32(path.count))
-            if count > 0, String(cString: path) == "/Applications/Claude.app/Contents/MacOS/Claude" {
+            let expected = desktopGateConfigured ? "/private/var/db/tunnelguard-desktop/Claude.app/Contents/MacOS/Claude" :
+                "/Applications/Claude.app/Contents/MacOS/Claude"
+            if count > 0, String(cString: path) == expected {
                 return DesktopSnapshot(pid: pid, session: record, exitStatus: job?.status)
             }
         }
@@ -152,13 +171,21 @@ struct DesktopRuntime: Sendable {
         let job: [String: Any] = ["Label": "app.tunnelguard.native-filter", "RunAtLoad": true, "StartInterval": 10,
                                   "ProgramArguments": ["/bin/sh", "-c", refresh]]
         let definition = try PropertyListSerialization.data(fromPropertyList: job, format: .xml, options: 0)
+        try authorize(installer, [NSUserName(), definition.base64EncodedString()],
+                      prompt: "TunnelGuard настроит системный фильтр только для Claude.")
+    }
+
+    private func authorize(_ script: String, _ arguments: [String], prompt: String) throws {
         let authorization = """
             on run argv
-                set commandText to "/bin/sh -c " & quoted form of item 1 of argv & " sh " & quoted form of item 2 of argv & " " & quoted form of item 3 of argv
-                do shell script commandText with administrator privileges with prompt "TunnelGuard настроит системный фильтр только для Claude."
+                set commandText to "/bin/sh -c " & quoted form of item 1 of argv & " sh"
+                repeat with i from 3 to count of argv
+                    set commandText to commandText & " " & quoted form of (item i of argv)
+                end repeat
+                do shell script commandText with administrator privileges with prompt (item 2 of argv)
             end run
             """
-        _ = try command("/usr/bin/osascript", ["-e", authorization, installer, NSUserName(), definition.base64EncodedString()])
+        _ = try command("/usr/bin/osascript", ["-e", authorization, script, prompt] + arguments)
     }
 
     private func command(_ executable: String, _ arguments: [String], capture: Bool = false) throws -> String {
