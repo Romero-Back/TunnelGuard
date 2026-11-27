@@ -23,6 +23,11 @@ class NativeLauncherTest(unittest.TestCase):
     allowed = ipaddress.ip_address("8.8.8.8")
     unexpected = ipaddress.ip_address("9.9.9.9")
 
+    def setUp(self):
+        state = patch.object(native.control, "access_state", return_value=("initial", False))
+        state.start()
+        self.addCleanup(state.stop)
+
     def test_start_refuses_missing_tunnel_or_unexpected_egress(self):
         cases = [(OSError("no tunnel"), (self.allowed, self.allowed)),
                  (self.tunnel, (self.unexpected, self.unexpected)),
@@ -49,7 +54,7 @@ class NativeLauncherTest(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertEqual(output.getvalue().strip(), str(self.allowed))
             self.assertIn("--child probe ", group.call_args.kwargs["input"])
-            self.assertTrue(group.call_args.kwargs["input"].endswith(f"utun9 19 {self.allowed}\n"))
+            self.assertTrue(f"utun9 19 {self.allowed} --access-generation " in group.call_args.kwargs["input"])
 
         with patch.object(native, "assert_filter") as check_filter, \
              patch.object(native.guard, "connect_bound") as connect, \

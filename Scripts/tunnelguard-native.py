@@ -2,6 +2,7 @@
 """Launch the installed Claude Desktop in the PF group restricted to V2Pro."""
 
 import argparse
+from contextlib import nullcontext
 import errno
 import grp
 import importlib.util
@@ -15,6 +16,15 @@ import ssl
 import subprocess
 import sys
 import tempfile
+
+# The bundled launcher imports the same control module as the source launcher.
+try:
+    import tunnelguard_control as control
+except ModuleNotFoundError:
+    control_spec = importlib.util.spec_from_file_location(
+        "tunnelguard_control", Path(__file__).with_name("tunnelguard-control.py"))
+    control = importlib.util.module_from_spec(control_spec)
+    control_spec.loader.exec_module(control)
 
 
 GROUP = "tunnelguard_claude"
@@ -31,13 +41,13 @@ else:
     spec.loader.exec_module(guard)
 
 
-def assert_filter(blocked_port):
+def assert_filter(blocked_port, host="127.0.0.1", family=socket.AF_INET):
     if os.geteuid() == 0 or os.getegid() != grp.getgrnam(GROUP).gr_gid:
         raise OSError("Claude must run as the signed-in user with the TunnelGuard process group")
-    with socket.socket() as connection:
+    with socket.socket(family) as connection:
         connection.settimeout(2)
         try:
-            connection.connect(("127.0.0.1", blocked_port))
+            connection.connect((host, blocked_port))
         except OSError as error:
             if not isinstance(error, socket.timeout) and error.errno not in (errno.EACCES, errno.EPERM):
                 raise
@@ -60,14 +70,20 @@ def report_blocked():
     return NETWORK_BLOCKED
 
 
-def child(mode, blocked_port, launcher_pid, interface, index, verified_ipv4, ready_file=None):
+def child(mode, blocked_port, launcher_pid, interface, index, verified_ipv4, ready_file=None, *, generation=None, ipv6_port=None):
     try:
+        if generation is not None:
+            control.require_access(generation)
         assert_filter(blocked_port)
+        if ipv6_port is not None:
+            assert_filter(ipv6_port, "::1", socket.AF_INET6)
         connection, _ = guard.connect_bound(guard.DOH_ADDRESSES[0], 443, (interface, index))
         connection.close()
+        if generation is not None:
+            control.require_access(generation)
     except (OSError, KeyError, subprocess.SubprocessError):
         return report_blocked()
-    if mode == "probe":
+    if mode in ("probe", "leak"):
         return 0
     if ready_file:
         publish(Path(ready_file), launcher_pid, verified_ipv4)
@@ -86,20 +102,31 @@ def run(mode, policy, ready_file):
         verified = policy.authorize((interface, index), 4, ssl.create_default_context(cafile="/etc/ssl/cert.pem"))
     except (OSError, subprocess.SubprocessError):
         return report_blocked()
-    with socket.socket() as blocked:
+    ipv6_listener = socket.socket(socket.AF_INET6) if mode == "leak" else nullcontext()
+    with socket.socket() as blocked, ipv6_listener as blocked6:
         blocked.bind(("127.0.0.1", 0))
         blocked.listen()
         command = [sys.executable] if frozen else ["/usr/bin/python3", "-B", str(driver)]
         command += ["--child", mode, str(blocked.getsockname()[1]), str(os.getpid()), interface, str(index), str(verified)]
         if ready_file:
             command.append(str(ready_file))
+        generation, paused = control.access_state()
+        if paused:
+            return report_blocked()
+        if policy.access_check:
+            policy.access_check()
+        command += ["--access-generation", generation]
+        if mode == "leak":
+            blocked6.bind(("::1", 0))
+            blocked6.listen()
+            command += ["--ipv6-port", str(blocked6.getsockname()[1])]
         environment = dict(os.environ, SHELL="/bin/sh")
         if frozen:
             environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
         try:
             result = subprocess.run(["/usr/bin/newgrp", GROUP], input="exec " + shlex.join(command) + "\n",
                                     text=True, env=environment, check=False)
-            if mode == "probe" and result.returncode == 0:
+            if mode in ("probe", "leak") and result.returncode == 0:
                 print(verified, flush=True)
             return result.returncode if result.returncode >= 0 else 128 - result.returncode
         finally:
@@ -112,7 +139,17 @@ def run(mode, policy, ready_file):
 
 def main():
     if sys.argv[1:2] == ["--child"]:
-        return child(sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5], int(sys.argv[6]), *sys.argv[7:])
+        parser = argparse.ArgumentParser()
+        parser.add_argument("ready_file", nargs="?")
+        parser.add_argument("--access-generation", required=True)
+        parser.add_argument("--ipv6-port", type=int)
+        options = parser.parse_args(sys.argv[8:])
+        return child(sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5], int(sys.argv[6]),
+                     sys.argv[7], options.ready_file, generation=options.access_generation, ipv6_port=options.ipv6_port)
+    if sys.argv[1:2] == ["cli"]:
+        if sys.platform != "darwin" or os.geteuid() == 0:
+            raise OSError("Requires an unprivileged macOS user")
+        return control.cli(guard, run, sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--probe", action="store_true", help="test the filter and V2Pro without starting Claude")
     parser.add_argument("--expected-egress", action="append", required=True, type=guard.expected_egress,
@@ -124,7 +161,13 @@ def main():
     if any(address.version != 4 for address in args.expected_egress):
         parser.error("the native Claude filter only supports IPv4")
     mode = "probe" if args.probe else "session"
-    return run(mode, guard.EgressPolicy(args.expected_egress), args.ready_file if mode == "session" else None)
+    generation, paused = control.access_state()
+    if paused:
+        return report_blocked()
+    def require_access():
+        control.require_access(generation)
+    return run(mode, guard.EgressPolicy(args.expected_egress, access_check=require_access),
+               args.ready_file if mode == "session" else None)
 
 
 if __name__ == "__main__":

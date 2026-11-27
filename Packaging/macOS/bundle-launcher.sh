@@ -8,6 +8,7 @@ build_dir=$(mktemp -d "${TMPDIR:-/tmp}/tunnelguard-launcher.XXXXXX")
 trap 'rm -rf -- "$build_dir"' EXIT
 
 install -m 644 "$scripts/tunnelguard-run.py" "$build_dir/tunnelguard_runner.py"
+install -m 644 "$scripts/tunnelguard-control.py" "$build_dir/tunnelguard_control.py"
 "${TUNNELGUARD_PYINSTALLER_PYTHON:?}" -m PyInstaller --noconfirm --onedir --name tunnelguard-native \
     --paths "$build_dir" --specpath "$build_dir" --workpath "$build_dir/work" --distpath "$build_dir/dist" \
     "$scripts/tunnelguard-native.py"

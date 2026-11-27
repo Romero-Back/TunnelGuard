@@ -17,7 +17,7 @@ context.saveGState()
 context.addPath(tile)
 context.clip()
 let background = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                            colors: [color(0.10, 0.60, 0.52), color(0.055, 0.25, 0.30), color(0.04, 0.13, 0.22)] as CFArray,
+                            colors: [color(0.16, 0.73, 0.51), color(0.07, 0.41, 0.34), color(0.04, 0.19, 0.24)] as CFArray,
                             locations: [0, 0.57, 1])!
 context.drawLinearGradient(background, start: CGPoint(x: 180, y: 880), end: CGPoint(x: 870, y: 130), options: [])
 context.restoreGState()
@@ -42,13 +42,18 @@ context.setLineJoin(.round)
 context.setLineWidth(32)
 context.drawPath(using: .fillStroke)
 
-context.setStrokeColor(color(0.67, 1, 0.86))
-context.setLineWidth(37)
+// The route bends at the filter before continuing to the VPN exit.
+let nodes = [CGPoint(x: 413, y: 448), CGPoint(x: 512, y: 548), CGPoint(x: 613, y: 548)]
+context.setStrokeColor(color(0.72, 1, 0.87))
+context.setLineWidth(28)
 context.setLineCap(.round)
-context.move(to: CGPoint(x: 417, y: 517))
-context.addLine(to: CGPoint(x: 484, y: 451))
-context.addLine(to: CGPoint(x: 610, y: 581))
+context.move(to: nodes[0])
+for node in nodes.dropFirst() { context.addLine(to: node) }
 context.strokePath()
+for node in nodes {
+    context.setFillColor(color(0.83, 1, 0.91))
+    context.fillEllipse(in: CGRect(x: node.x - 27, y: node.y - 27, width: 54, height: 54))
+}
 
 let bitmap = NSBitmapImageRep(cgImage: context.makeImage()!)
 try bitmap.representation(using: .png, properties: [:])!.write(to: output)

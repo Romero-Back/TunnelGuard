@@ -27,7 +27,6 @@ struct DesktopRuntime: Sendable {
     private var sessionFile: URL { support.appendingPathComponent("native-session.json") }
     private var jobFile: URL { support.appendingPathComponent("native-job.plist") }
     private var domain: String { "gui/\(getuid())" }
-    var logFile: URL { support.appendingPathComponent("native-session.log") }
     var filterConfigured: Bool {
         FileManager.default.fileExists(atPath: "/Library/LaunchDaemons/app.tunnelguard.native-filter.plist")
     }
@@ -59,14 +58,11 @@ struct DesktopRuntime: Sendable {
         }
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        let descriptor = Darwin.open(logFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600)
-        guard descriptor >= 0 else { throw DesktopError.startFailed }
-        Darwin.close(descriptor)
         let job: [String: Any] = [
             "Label": label, "RunAtLoad": true,
             "ProgramArguments": program + expectedIPv4.flatMap { ["--expected-egress", $0] }
                 + ["--ready-file", sessionFile.path],
-            "StandardOutPath": logFile.path, "StandardErrorPath": logFile.path,
+            "StandardOutPath": "/dev/null", "StandardErrorPath": "/dev/null",
         ]
         let plist = try PropertyListSerialization.data(fromPropertyList: job, format: .xml, options: 0)
         try plist.write(to: jobFile, options: .atomic)
@@ -110,6 +106,43 @@ struct DesktopRuntime: Sendable {
               let address = output.split(whereSeparator: \.isNewline).last.map(String.init),
               expectedIPv4.contains(address) else { throw DesktopError.networkBlocked }
         return address
+    }
+
+    func observe() -> NetworkObservation {
+        (try? JSONDecoder().decode(NetworkObservation.self, from: Data(control(["status"]).utf8))) ?? .unavailable
+    }
+
+    func diagnose(_ diagnostic: Diagnostic, addresses: [String]) throws -> String {
+        let output = try control([diagnostic.rawValue] + addresses.flatMap { ["--expected-egress", $0] })
+        if diagnostic == .fingerprint {
+            let data = try JSONDecoder().decode(VPNFingerprint.self, from: Data(output.utf8))
+            guard addresses.contains(data.egress) else { throw DesktopError.networkBlocked }
+            return "V2Pro · \(data.interface) · IPv4 \(data.egress)"
+        }
+        guard let address = output.split(whereSeparator: \.isNewline).last.map(String.init),
+              addresses.contains(address) else { throw DesktopError.networkBlocked }
+        return "Прямой TCP по IPv4 и IPv6 к контрольным локальным портам заблокирован. TCP через V2Pro прошёл."
+    }
+
+    func setPaused(_ paused: Bool) throws {
+        _ = try control([paused ? "panic" : "resume"])
+    }
+
+    func terminalCommand() throws -> URL {
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        let file = support.appendingPathComponent("Claude Code Secure Launch.command")
+        let arguments = (launcher + ["cli", "launch-code"]).map {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }.joined(separator: " ")
+        try Data("#!/bin/sh\nexec \(arguments)\n".utf8).write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)
+        return file
+    }
+
+    private func control(_ arguments: [String]) throws -> String {
+        let program = launcher
+        return try command(program[0], Array(program.dropFirst()) + ["cli"] + arguments, capture: true)
     }
 
     func installFilter() throws {

@@ -109,3 +109,23 @@ lab_dir=$(sh Packaging/macOS/build-lab.sh)
 Выбран путь прямой установки вне Mac App Store. Нужны сертификат `Developer ID Application` с приватным ключом и два отдельных профиля `Developer ID` с включённой возможностью Network Extensions для `app.tunnelguard.lab` и `app.tunnelguard.lab.filter`. Оба профиля должны разрешать `content-filter-provider-systemextension`. В `Packaging/macOS` подготовлены соответствующие entitlements. Право `com.apple.developer.system-extension.install` указано у приложения-контейнера. [Развёртывание Network Extension на macOS](https://developer.apple.com/documentation/technotes/tn3134-network-extension-provider-deployment), [Network Extensions Entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.networking.networkextension), [System Extension Entitlement](https://developer.apple.com/documentation/bundleresources/system-extensions).
 
 Для подписанной сборки каждый профиль помещается в `Contents/embedded.provisionprofile` своего пакета. Расширение подписывается первым, контейнер вторым, с одним Team ID, Hardened Runtime и защищёнными метками времени. Затем сборка проходит нотарификацию. Для активации macOS проверяет подпись, размещение приложения в `/Applications` и запрашивает пользовательское одобрение при необходимости. `codesign`, `notarytool` и `stapler` уже доступны через Command Line Tools на этом Mac. [Профили подписи macOS](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles), [Подпись через командную строку](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac/), [Нотарификация](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution/), [Активация системных расширений](https://developer.apple.com/documentation/systemextensions/installing-system-extensions-and-drivers/).
+
+## Панель наблюдения и CLI
+
+На главной отображаются наблюдаемый маршрут, состояние службы PF, управляемые сеансы и последние события. В разделе «Маршруты» можно выбрать каждый узел схемы. «Диагностика» проверяет совместимость текущего подключения V2Pro и показывает его отпечаток. Тест утечек проверяет прямой TCP по IPv4 и IPv6 к контрольным локальным портам.
+
+Claude Code запускается в Terminal после сетевой проверки. Для нестандартной установки укажи исполняемый файл в CLI. Панель отслеживает защищённые сеансы, созданные этим запускатором. Аварийная остановка доступна в меню и по сочетанию ⌥⇧⌘P. Чтобы затем запустить Code заново, заверши старый сеанс в Terminal и разреши новые запуски.
+
+```sh
+launcher="/Applications/TunnelGuard.app/Contents/Resources/NativeLauncher/tunnelguard-native"
+"$launcher" cli status
+"$launcher" cli check
+"$launcher" cli fingerprint
+"$launcher" cli leak-test
+"$launcher" cli launch-code
+"$launcher" cli launch-code --executable /absolute/path/to/claude
+"$launcher" cli panic
+"$launcher" cli resume
+```
+
+Из исходников используется `python3 -B Scripts/tunnelguard-native.py cli` с теми же подкомандами. Для проверок и запуска можно передать `--expected-egress` несколько раз. По умолчанию берутся разрешённые IPv4 из настроек приложения. Защищённый запуск Desktop доступен в окне. Возможности наблюдения и границы тестов описаны в [SECURITY.md](SECURITY.md).

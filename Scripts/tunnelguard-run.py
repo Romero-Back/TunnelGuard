@@ -146,13 +146,16 @@ def observe_egress(tunnel, version, tls_context):
 
 
 class EgressPolicy:
-    def __init__(self, expected):
+    def __init__(self, expected, access_check=None):
+        self.access_check = access_check
         self.expected = frozenset(expected)
         self.families = frozenset(address.version for address in self.expected)
         self.confirmed = {}
         self.locks = {version: threading.Lock() for version in self.families}
 
     def authorize(self, tunnel, version, tls_context):
+        if self.access_check:
+            self.access_check()
         if version not in self.families:
             raise OSError(f"No IPv{version} egress address was configured")
         with self.locks[version]:
@@ -166,6 +169,8 @@ class EgressPolicy:
                 raise OSError("Could not verify the VPN egress") from error
             if first != second or first.version != version or first not in self.expected:
                 raise OSError("The VPN egress does not match the configuration")
+            if self.access_check:
+                self.access_check()
             self.confirmed[version] = (tunnel, time.monotonic() + EGRESS_VALIDITY, first)
             return first
 
@@ -208,6 +213,8 @@ def relay(client, upstream, address, tunnel, tls_context=None, policy=None):
             data = source.recv(65536)
             peer = peers[source]
             if data:
+                if policy is not None and policy.access_check:
+                    policy.access_check()
                 peer.sendall(data)
             else:
                 del peers[source]

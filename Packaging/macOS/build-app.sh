@@ -12,7 +12,7 @@ resources="$app/Contents/Resources"
 mkdir -p "$app/Contents/MacOS" "$resources/Scripts"
 install -m 644 "$packaging_dir/TunnelGuard-Info.plist" "$app/Contents/Info.plist"
 install -m 755 "$bin_dir/TunnelGuardApp" "$app/Contents/MacOS/TunnelGuardApp"
-install -m 644 Scripts/tunnelguard-run.py Scripts/tunnelguard-native.py "$resources/Scripts/"
+install -m 644 Scripts/tunnelguard-run.py Scripts/tunnelguard-native.py Scripts/tunnelguard-control.py "$resources/Scripts/"
 install -m 644 "$packaging_dir/install-native-filter.sh" "$packaging_dir/refresh-native-pf.sh" "$resources/Scripts/"
 
 if [ -n "${TUNNELGUARD_PYINSTALLER_PYTHON:-}" ]; then
