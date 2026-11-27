@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch the installed Claude Desktop in the PF group restricted to V2Pro."""
+"""Launch the installed Claude Desktop in the PF group restricted to the selected VPN."""
 
 import argparse
 from contextlib import nullcontext
@@ -106,8 +106,12 @@ def gated_request(stream):
     if not line.endswith(b"\n") or len(line) > 16384:
         raise OSError("Invalid restricted launch request")
     request = json.loads(line)
-    if not isinstance(request, dict) or set(request) != {"mode", "expected", "pid", "publish"}:
+    required = {"mode", "expected", "pid", "publish"}
+    if not isinstance(request, dict) or set(request) not in (required, required | {"vpn"}):
         raise OSError("Invalid restricted launch request")
+    profile = request.get("vpn", guard.DEFAULT_VPN_PROFILE)
+    if not guard.valid_vpn_profile(profile) or profile != guard.vpn_profile():
+        raise OSError("The restricted launch requires the configured VPN")
     mode, expected, pid, should_publish = (request[key] for key in ("mode", "expected", "pid", "publish"))
     if mode not in ("session", "probe", "leak") or type(pid) is not int or pid <= 1 or type(should_publish) is not bool:
         raise OSError("Invalid restricted launch request")
@@ -134,6 +138,8 @@ def gated_request(stream):
                 blocked6.listen()
                 ipv6_port = blocked6.getsockname()[1]
             verify_group_connection(tunnel, blocked.getsockname()[1], generation, ipv6_port)
+        if profile != guard.vpn_profile():
+            raise OSError("The VPN profile changed during verification")
     except (OSError, KeyError, subprocess.SubprocessError):
         return report_blocked()
     if mode in ("probe", "leak"):
@@ -165,8 +171,17 @@ def clear_session(ready_file):
 def request_gated_launch(mode, addresses, ready_file):
     if ready_file is not None and ready_file != control.SUPPORT / "native-session.json":
         raise OSError("Unexpected session record path")
+    try:
+        profile = guard.vpn_profile()
+        if profile not in guard.detected_vpn_interfaces():
+            return report_blocked()
+    except (OSError, subprocess.SubprocessError):
+        return report_blocked()
     body = {"mode": mode, "expected": [str(address) for address in addresses],
             "pid": os.getpid(), "publish": ready_file is not None}
+    if profile != guard.DEFAULT_VPN_PROFILE:
+        # Older installed helpers reject this field instead of launching through V2Pro.
+        body["vpn"] = profile
     try:
         result = subprocess.run(["/usr/bin/sudo", "-n", str(GATE_DIRECTORY / "launch")],
                                 input=json.dumps(body) + "\n", text=True, check=False)
@@ -236,7 +251,7 @@ def main():
             raise OSError("Requires an unprivileged macOS user")
         return control.cli(guard, run, sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--probe", action="store_true", help="test the filter and V2Pro without starting Claude")
+    parser.add_argument("--probe", action="store_true", help="test the filter and selected VPN without starting Claude")
     parser.add_argument("--expected-egress", action="append", required=True, type=guard.expected_egress,
                         help="permitted VPN IPv4, repeat to allow more than one")
     parser.add_argument("--ready-file", type=Path)

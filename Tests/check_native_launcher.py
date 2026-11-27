@@ -24,6 +24,9 @@ class NativeLauncherTest(unittest.TestCase):
     unexpected = ipaddress.ip_address("9.9.9.9")
 
     def setUp(self):
+        gate = patch.object(native.os.path, "lexists", return_value=False)
+        gate.start()
+        self.addCleanup(gate.stop)
         state = patch.object(native.control, "access_state", return_value=("initial", False))
         state.start()
         self.addCleanup(state.stop)

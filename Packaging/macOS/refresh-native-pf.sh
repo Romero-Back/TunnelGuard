@@ -1,6 +1,8 @@
 #!/bin/sh
+# TunnelGuard VPN profile v1
 set -eu
 
+profile=$1
 test "$(/usr/bin/id -u)" = 0
 anchor=com.apple/app.tunnelguard.claude
 token_file=/var/run/tunnelguard-claude.pf-token
@@ -9,10 +11,25 @@ case "$gid" in ''|*[!0-9]*) exit 1;; esac
 
 # Amend only the child ruleset. Never reload the system's root ruleset.
 /sbin/pfctl -s rules 2>/dev/null | /usr/bin/grep -Fxq 'anchor "com.apple/*" all'
-iface=$(/sbin/ifconfig -v | /usr/bin/awk '
-    /^[^[:space:]]/ { name="" }
-    /^utun[0-9]+: flags=[0-9a-f]+<UP[,>]/ { name=$1; sub(/:$/, "", name) }
-    name != "" && /desc:"VPN: V2Pro"/ && /domain:NetworkExtension type:VPN/ { print name }
+interfaces=$(/sbin/ifconfig -v) || interfaces=
+iface=$(printf '%s\n' "$interfaces" | TUNNELGUARD_VPN_PROFILE="$profile" /usr/bin/awk '
+    /^$/ || /^[^ \t]/ { name="" }
+    /^utun[0-9][0-9]?[0-9]?: flags=[0-9a-f]+<UP[,>]/ { name=$1; sub(/:$/, "", name) }
+    name != "" && /^[ \t]+agent domain:NetworkExtension type:VPN([ \t]|$)/ {
+        if (match($0, /[ \t]desc:"VPN: [^"]*"([ \t]|$)/)) {
+            label=substr($0, RSTART+12, RLENGTH-12)
+            sub(/"[ \t]?$/, "", label)
+            if (!((name SUBSEP label) in seen)) {
+                seen[name,label]=1
+                labels[name]++
+                if (label == ENVIRON["TUNNELGUARD_VPN_PROFILE"]) {
+                    chosen=name
+                    matches++
+                }
+            }
+        }
+    }
+    END { if (matches == 1 && labels[chosen] == 1) print chosen }
 ')
 
 rules() {

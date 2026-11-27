@@ -89,7 +89,15 @@ def configured_addresses():
 
 def monitor(guard):
     result = dict(interface=None, routeIPv4=None, routeIPv6=None, filter="unknown", filterRuns=None,
-                  paused=None, codeActive=code_active(), codeAuthorized=None)
+                  paused=None, codeActive=code_active(), codeAuthorized=None, vpnName=None, vpnChoices=None)
+    try:
+        result["vpnName"] = guard.vpn_profile()
+    except OSError:
+        pass
+    try:
+        result["vpnChoices"] = guard.detected_vpn_interfaces()
+    except (OSError, subprocess.SubprocessError):
+        pass
     try:
         generation, result["paused"] = access_state()
         if result["codeActive"]:
@@ -168,9 +176,12 @@ def cli(guard, native_run, arguments):
         raise OSError("TunnelGuard access is paused")
     policy = guard.EgressPolicy(expected, access_check=lambda: require_access(generation))
     if options.action == "fingerprint":
+        profile = guard.vpn_profile()
         interface = guard.v2pro_interface()
         address = policy.authorize(interface, 4, ssl.create_default_context(cafile="/etc/ssl/cert.pem"))
-        print(json.dumps(dict(interface=interface[0], egress=str(address))))
+        if profile != guard.vpn_profile():
+            raise OSError("The VPN profile changed during verification")
+        print(json.dumps(dict(interface=interface[0], egress=str(address), vpnName=profile)))
         return 0
     if options.action != "launch-code":
         return native_run("leak" if options.action == "leak-test" else "probe", policy, None)

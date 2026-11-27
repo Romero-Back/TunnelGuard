@@ -38,17 +38,25 @@ class DesktopGateTests(unittest.TestCase):
              patch.object(native, "ensure_not_running"), \
              patch.object(native.control, "access_state", return_value=("initial", False)), \
              patch.object(native.control, "require_access"), \
+             patch.object(native.guard, "vpn_profile", return_value="Other VPN") as profile, \
              patch.object(native.guard, "v2pro_interface", return_value=("utun9", 19)), \
              patch.object(native.guard.EgressPolicy, "authorize", return_value=expected), \
-             patch.object(native, "verify_group_connection", side_effect=[OSError("unverified"), None]), \
+             patch.object(native, "verify_group_connection", side_effect=[OSError("unverified"), None, None]), \
              patch.object(native, "report_blocked", return_value=75), \
              patch.object(native.os, "execv") as run:
             group.return_value.gr_gid = 888
             with self.assertRaises(OSError):
                 native.gated_request(self.request(command="/bin/sh"))
-            self.assertEqual(native.gated_request(self.request()), 75)
+            with self.assertRaisesRegex(OSError, "configured VPN"):
+                native.gated_request(self.request())
+            self.assertEqual(native.gated_request(self.request(vpn="Other VPN")), 75)
             run.assert_not_called()
-            native.gated_request(self.request())
+            profile.side_effect = ["Other VPN", "V2Pro"]
+            # A change between the egress test and exec must also prevent launching.
+            self.assertEqual(native.gated_request(self.request(vpn="Other VPN")), 75)
+            run.assert_not_called()
+            profile.side_effect = None
+            native.gated_request(self.request(vpn="Other VPN"))
             run.assert_called_once_with(native.GATED_APP, [native.GATED_APP])
 
     def test_required_gate_missing_refuses_before_legacy_launcher(self):
@@ -67,6 +75,20 @@ class DesktopGateTests(unittest.TestCase):
             self.assertEqual(native.run("session", native.guard.EgressPolicy([expected]), None), 77)
             request.assert_called_once_with("session", frozenset([expected]), None)
             legacy.assert_not_called()
+
+    def test_gated_request_only_accepts_legacy_protocol_for_v2pro(self):
+        expected = native.guard.expected_egress("8.8.8.8")
+        with patch.object(native.guard, "vpn_profile", side_effect=["V2Pro", "Other VPN", "Missing"]), \
+             patch.object(native.guard, "detected_vpn_interfaces", return_value={"V2Pro": "utun5", "Other VPN": "utun9"}), \
+             patch.object(native.subprocess, "run") as helper, \
+             patch.object(native, "report_blocked", return_value=75):
+            helper.return_value.returncode = 0
+            self.assertEqual(native.request_gated_launch("probe", [expected], None), 0)
+            self.assertNotIn("vpn", json.loads(helper.call_args.kwargs["input"]))
+            self.assertEqual(native.request_gated_launch("probe", [expected], None), 0)
+            self.assertEqual(json.loads(helper.call_args.kwargs["input"])["vpn"], "Other VPN")
+            self.assertEqual(native.request_gated_launch("probe", [expected], None), 75)
+            self.assertEqual(helper.call_count, 2)
 
 
 if __name__ == "__main__":

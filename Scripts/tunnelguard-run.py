@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch a macOS command with a V2Pro-bound HTTPS CONNECT proxy."""
+"""Launch a macOS command with a VPN-bound HTTPS CONNECT proxy."""
 
 import argparse
 import contextlib
@@ -8,10 +8,12 @@ import http.server
 import ipaddress
 import json
 import os
+import plistlib
 import re
 import select
 import socket
 import ssl
+import stat
 import subprocess
 import sys
 import threading
@@ -28,6 +30,8 @@ DOH_HOST = "cloudflare-dns.com"
 DOH_ADDRESSES = tuple(map(ipaddress.ip_address, ("1.1.1.1", "2606:4700:4700::1111")))
 IPIFY_HOST = "api64.ipify.org"
 DIAGNOSTIC_HOST = "example.com"
+FILTER_DEFINITION = "/Library/LaunchDaemons/app.tunnelguard.native-filter.plist"
+DEFAULT_VPN_PROFILE = "V2Pro"
 
 
 def command_output(*command):
@@ -38,18 +42,64 @@ def command_output(*command):
     return result.stdout
 
 
-def v2pro_interface():
-    interfaces = []
+def valid_vpn_profile(name):
+    return isinstance(name, str) and bool(re.fullmatch(r'[^"\x00-\x1f\x7f]+', name))
+
+
+def vpn_profile():
+    try:
+        fd = os.open(FILTER_DEFINITION, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return DEFAULT_VPN_PROFILE
+    with os.fdopen(fd, "rb") as stream:
+        metadata = os.fstat(stream.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_mode & 0o022:
+            raise OSError("Untrusted VPN configuration")
+        try:
+            definition = plistlib.load(stream)
+        except (ValueError, plistlib.InvalidFileException) as error:
+            raise OSError("Invalid VPN configuration") from error
+    arguments = definition.get("ProgramArguments") if isinstance(definition, dict) else None
+    if not isinstance(arguments, list) or arguments[:2] != ["/bin/sh", "-c"]:
+        raise OSError("Unknown VPN configuration")
+    if len(arguments) == 3 and isinstance(arguments[2], str) and 'desc:"VPN: V2Pro"' in arguments[2]:
+        return DEFAULT_VPN_PROFILE
+    if (len(arguments) == 5 and arguments[3] == "sh" and valid_vpn_profile(arguments[4])
+            and isinstance(arguments[2], str) and "# TunnelGuard VPN profile v1\n" in arguments[2]):
+        return arguments[4]
+    raise OSError("Unknown VPN configuration")
+
+
+def vpn_interfaces(output):
+    profiles_by_interface = {}
     interface = None
-    for line in command_output("/sbin/ifconfig", "-v").splitlines():
-        if not line[:1].isspace():
-            match = re.match(r"(utun[0-9]+): flags=[0-9a-f]+<([^>]+)>", line)
-            interface = match[1] if match and "UP" in match[2].split(",") else None
-        elif interface and 'desc:"VPN: V2Pro"' in line and "domain:NetworkExtension type:VPN" in line:
-            interfaces.append(interface)
-    if len(interfaces) != 1:
-        raise OSError("Could not identify one active V2Pro tunnel")
-    name = interfaces[0]
+    for line in output.split("\n"):
+        if not line.startswith((" ", "\t")):
+            match = re.match(r"(utun[0-9]{1,3}): flags=[0-9a-f]+<([^>]+)>", line)
+            interface = match[1] if match and match[2].split(",")[0] == "UP" else None
+        elif interface and re.match(r"^[ \t]+agent domain:NetworkExtension type:VPN(?:[ \t]|$)", line):
+            match = re.search(r'(?:^|[ \t])desc:"VPN: ([^"]*)"(?:[ \t]|$)', line)
+            if match:
+                profiles_by_interface.setdefault(interface, set()).add(match[1])
+    interfaces_by_profile = {}
+    for name, profiles in profiles_by_interface.items():
+        for profile in profiles:
+            interfaces_by_profile.setdefault(profile, []).append(name)
+    return {
+        profile: names[0] for profile, names in interfaces_by_profile.items()
+        if valid_vpn_profile(profile) and len(names) == 1 and len(profiles_by_interface[names[0]]) == 1
+    }
+
+
+def detected_vpn_interfaces():
+    return vpn_interfaces(command_output("/sbin/ifconfig", "-v"))
+
+
+def v2pro_interface():
+    # Keep this hook for the Windows host's replacement resolver.
+    name = detected_vpn_interfaces().get(vpn_profile())
+    if name is None:
+        raise OSError("Could not identify one active tunnel for the selected VPN")
     return name, socket.if_nametoindex(name)
 
 
@@ -58,7 +108,7 @@ def verify_route(address, tunnel):
     route = command_output("/sbin/route", "-n", "get", family, str(address))
     interface = re.search(r"^\s*interface: (\S+)", route, re.MULTILINE)
     if not interface or interface[1] != tunnel[0] or v2pro_interface() != tunnel:
-        raise OSError("The current route does not use the V2Pro tunnel")
+        raise OSError("The current route does not use the selected VPN tunnel")
 
 
 def connect_bound(address, port, tunnel=None):
@@ -195,7 +245,7 @@ def connect_destination(host, tls_context, policy):
             return connection, address, tunnel
         except (OSError, subprocess.SubprocessError):
             continue
-    raise OSError("No confirmed V2Pro route to the destination")
+    raise OSError("No confirmed VPN route to the destination")
 
 
 def relay(client, upstream, address, tunnel, tls_context=None, policy=None):
@@ -245,7 +295,7 @@ class ConnectHandler(http.server.BaseHTTPRequestHandler):
         try:
             upstream, address, tunnel = connect_destination(host, self.server.tls_context, self.server.policy)
         except (OSError, subprocess.SubprocessError):
-            self.send_error(502, "No confirmed V2Pro route")
+            self.send_error(502, "No confirmed VPN route")
             return
         with upstream:
             self.send_response_only(200, "Connection Established")

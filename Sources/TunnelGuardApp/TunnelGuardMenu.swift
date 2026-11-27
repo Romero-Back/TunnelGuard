@@ -44,8 +44,8 @@ final class TunnelGuardMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         else if model.observation?.paused == true { status = "Доступ приостановлен" }
         else if model.desktopGateState != .installed { status = "Запуск Claude требует настройки" }
         else if model.filterStalled || model.observation?.filter != .healthy { status = "Состояние PF требует внимания" }
-        else if model.observation?.routeIPv4 == true { status = "Маршрут V2Pro обнаружен" }
-        else { status = "Маршрут V2Pro не подтверждён" }
+        else if model.observation?.routeIPv4 == true { status = "Маршрут VPN обнаружен" }
+        else { status = "Маршрут VPN не подтверждён" }
         add(status, to: menu, enabled: false)
         menu.addItem(.separator())
         add(model.hasSession ? "Открыть Claude" : "Запустить Claude", to: menu,

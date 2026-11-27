@@ -4,14 +4,17 @@ import http.client
 import importlib.util
 import ipaddress
 import os
+import plistlib
 import select
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -23,6 +26,53 @@ spec.loader.exec_module(guard)
 
 
 class LauncherTest(unittest.TestCase):
+    def test_vpn_configuration_preserves_legacy_default_and_rejects_invalid_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "filter.plist"
+            as_root = SimpleNamespace(st_mode=0o100644, st_uid=0)
+            with patch.object(guard, "FILTER_DEFINITION", path), patch.object(guard.os, "fstat", return_value=as_root):
+                self.assertEqual(guard.vpn_profile(), "V2Pro")
+                path.write_bytes(plistlib.dumps({"ProgramArguments": ["/bin/sh", "-c", 'desc:"VPN: V2Pro"']}))
+                self.assertEqual(guard.vpn_profile(), "V2Pro")
+                path.write_bytes(plistlib.dumps({
+                    "ProgramArguments": ["/bin/sh", "-c", "# TunnelGuard VPN profile v1\n", "sh", "Other VPN"]
+                }))
+                self.assertEqual(guard.vpn_profile(), "Other VPN")
+                as_root.st_mode = 0o100664
+                with self.assertRaises(OSError):
+                    guard.vpn_profile()
+                as_root.st_mode = 0o100644
+                path.write_bytes(b"Invalid policy")
+                with self.assertRaises(OSError):
+                    guard.vpn_profile()
+
+    def test_pf_and_preflight_resolve_the_same_vpn(self):
+        refresh = (Path(__file__).resolve().parents[1] / "Packaging/macOS/refresh-native-pf.sh").read_text()
+        resolver = refresh.split("iface=$(", 1)[1].split("\nrules() {", 1)[0].strip()[:-1]
+        v2pro = '\tagent domain:NetworkExtension type:VPN flags:0x3 desc:"VPN: V2Pro"\n'
+        other = '\tagent domain:NetworkExtension type:VPN flags:0x3 desc:"VPN: Тест \\ VPN"\n'
+        cases = [
+            ("utun5: flags=8051<UP,POINTOPOINT>\n" + v2pro +
+             "utun9: flags=8051<UP,POINTOPOINT>\n" + other + other,
+             {"V2Pro": "utun5", "Тест \\ VPN": "utun9"}),
+            ("utun10: flags=8051<UP,POINTOPOINT>\n" + other, {"Тест \\ VPN": "utun10"}),
+            ("utun9: flags=8051<UP,POINTOPOINT>\n" + other +
+             "utun10: flags=8051<UP,POINTOPOINT>\n" + other, {}),
+            ("utun9: flags=8051<UP,POINTOPOINT>\n" + other + v2pro, {}),
+            ("utun9: flags=8050<POINTOPOINT>\n" + other +
+             "en0: flags=8051<UP,POINTOPOINT>\n" + v2pro +
+             "utun10: flags=8051<UP,POINTOPOINT>\n" + other.replace("type:VPN", "type:VPNFake"), {}),
+        ]
+        for interfaces, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(guard.vpn_interfaces(interfaces), expected)
+                for profile in ("V2Pro", "Тест \\ VPN"):
+                    result = subprocess.check_output(
+                        ["/bin/sh", "-c", 'interfaces=$1; profile=$2; ' + resolver, "sh", interfaces, profile],
+                        text=True,
+                    ).strip()
+                    self.assertEqual(result, expected.get(profile, ""))
+
     @unittest.skipUnless(sys.platform == "darwin", "requires the macOS sandbox")
     def test_child_socket_access(self):
         with socket.socket() as permitted, socket.socket() as denied:

@@ -90,6 +90,7 @@ final class DesktopModel: ObservableObject {
     @Published private(set) var desktopGateState: DesktopGateState = .off
 
     @Published private(set) var observation: NetworkObservation?
+    @Published var vpnDraft: String?
     @Published private(set) var observedAt: Date?
     @Published private(set) var filterStalled = false
     private var lastHelperProgress: Date?
@@ -130,8 +131,9 @@ final class DesktopModel: ObservableObject {
         let stalled = current.filterRuns != nil && lastHelperProgress.map { now.timeIntervalSince($0) > 35 } == true
         if stalled && !filterStalled { record("Служба PF перестала обновлять правила", warning: true) }
         filterStalled = stalled
-        if let previous, previous.interface != current.interface || previous.routeIPv4 != current.routeIPv4 {
-            record(current.routeIPv4 == true ? "Маршрут V2Pro восстановлен" : "Маршрут V2Pro потерян",
+        if let previous, previous.vpnName != current.vpnName ||
+            previous.interface != current.interface || previous.routeIPv4 != current.routeIPv4 {
+            record(current.routeIPv4 == true ? "Маршрут VPN восстановлен" : "Маршрут VPN потерян",
                    warning: current.routeIPv4 != true)
             if operation == nil { networkState = .unchecked; lastChecked = nil }
         }
@@ -155,14 +157,14 @@ final class DesktopModel: ObservableObject {
         let addresses = effectiveAddresses
         Task {
             let result = await Task.detached { try? runtime.diagnose(diagnostic, addresses: addresses) }.value
-            diagnosticResult = result ?? "Проверка не пройдена. Подключи V2Pro и проверь разрешённые IPv4 и службу PF."
+            diagnosticResult = result ?? "Проверка не пройдена. Проверь выбранный VPN, разрешённые IPv4 и службу PF."
             record(result == nil ? "Диагностика не пройдена" : "Диагностика завершена", warning: result == nil)
             diagnosticRunning = false
         }
     }
 
     func launchCode() {
-        guard !paused, !effectiveAddresses.isEmpty, observation?.codeActive != true else { return }
+        guard operation == nil, !paused, !effectiveAddresses.isEmpty, observation?.codeActive != true else { return }
         do {
             let file = try runtime.terminalCommand()
             guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else {
@@ -444,16 +446,25 @@ final class DesktopModel: ObservableObject {
     }
 
     func installFilter() {
-        guard operation == nil else { return }
+        applyVPN(nil)
+    }
+
+    func applyVPN(_ profile: String?) {
+        guard operation == nil, !hasSession, observation?.codeActive != true else { return }
         operation = .settingUp
+        networkState = .unchecked
+        lastChecked = nil
+        diagnosticResult = nil
         error = nil
         let runtime = self.runtime
         Task {
             do {
-                try await Task.detached { try runtime.installFilter() }.value
+                try await Task.detached { try runtime.installFilter(vpnName: profile) }.value
                 filterConfigured = runtime.filterConfigured
+                await observeNetwork()
+                if vpnDraft == observation?.vpnName { vpnDraft = nil }
             } catch {
-                self.error = "Настройка защиты не завершилась. Попробуй ещё раз."
+                self.error = "Настройка защиты не завершилась. Закрой Claude Desktop и Claude Code и попробуй ещё раз."
             }
             operation = nil
             if error == nil { checkNetwork() }

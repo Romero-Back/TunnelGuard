@@ -167,11 +167,11 @@ struct DesktopRuntime: Sendable {
         if diagnostic == .fingerprint {
             let data = try JSONDecoder().decode(VPNFingerprint.self, from: Data(output.utf8))
             guard addresses.contains(data.egress) else { throw DesktopError.networkBlocked }
-            return "V2Pro · \(data.interface) · IPv4 \(data.egress)"
+            return "\(data.vpnName) · \(data.interface) · IPv4 \(data.egress)"
         }
         guard let address = output.split(whereSeparator: \.isNewline).last.map(String.init),
               addresses.contains(address) else { throw DesktopError.networkBlocked }
-        return "Прямой TCP по IPv4 и IPv6 к контрольным локальным портам заблокирован. TCP через V2Pro прошёл."
+        return "Прямой TCP по IPv4 и IPv6 к контрольным локальным портам заблокирован. TCP через выбранный VPN прошёл."
     }
 
     func setPaused(_ paused: Bool) throws {
@@ -195,21 +195,22 @@ struct DesktopRuntime: Sendable {
         return try command(program[0], Array(program.dropFirst()) + ["cli"] + arguments, capture: true)
     }
 
-    func installFilter() throws {
+    func installFilter(vpnName: String?) throws {
+        guard let vpnName = vpnName ?? observe().vpnName else { throw DesktopError.networkBlocked }
         let scripts = resources.appendingPathComponent("Scripts")
         let installer = try String(contentsOf: scripts.appendingPathComponent("install-native-filter.sh"), encoding: .utf8)
         let refresh = try String(contentsOf: scripts.appendingPathComponent("refresh-native-pf.sh"), encoding: .utf8)
         let job: [String: Any] = ["Label": "app.tunnelguard.native-filter", "RunAtLoad": true, "StartInterval": 10,
-                                  "ProgramArguments": ["/bin/sh", "-c", refresh]]
+                                  "ProgramArguments": ["/bin/sh", "-c", refresh, "sh", vpnName]]
         let definition = try PropertyListSerialization.data(fromPropertyList: job, format: .xml, options: 0)
-        try authorize(installer, [NSUserName(), definition.base64EncodedString()],
+        try authorize(installer, [NSUserName(), definition.base64EncodedString(), resources.path],
                       prompt: "TunnelGuard настроит системный фильтр только для Claude.")
     }
 
     private func authorize(_ script: String, _ arguments: [String], prompt: String) throws {
         let authorization = """
             on run argv
-                set commandText to "/bin/sh -c " & quoted form of item 1 of argv & " sh"
+                set commandText to "/usr/bin/lockf -k -t 0 /private/var/db/tunnelguard-install.lock /bin/sh -c " & quoted form of item 1 of argv & " sh"
                 repeat with i from 3 to count of argv
                     set commandText to commandText & " " & quoted form of (item i of argv)
                 end repeat
@@ -242,7 +243,7 @@ enum DesktopError: LocalizedError {
         switch self {
         case .alreadyRunning: "Защищённый сеанс Claude уже запущен."
         case .missingResources: "В сборке отсутствует запускатор Claude."
-        case .networkBlocked: "Проверь подключение V2Pro и разрешённые IPv4, затем попробуй снова."
+        case .networkBlocked: "Проверь подключение выбранного VPN и разрешённые IPv4, затем попробуй снова."
         case .gateUnverified: "Ограничение прямого запуска не подтверждено. Проверь настройки Claude Desktop."
         case .startFailed: "Claude не открылся. Проверь, закрыт ли обычный Claude и активен ли сетевой фильтр."
         case .openFailed: "Не удалось открыть окно Claude. Проверь состояние сеанса и попробуй снова."

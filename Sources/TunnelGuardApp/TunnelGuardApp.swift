@@ -60,7 +60,7 @@ private struct SimpleLauncher: View {
             return "Для первого запуска настрой защиту в экспертном режиме."
         }
         if model.paused { return "Доступ приостановлен. Его можно восстановить через значок в строке меню." }
-        if model.observation?.routeIPv4 != true { return "Подключи V2Pro и дождись подтверждения маршрута." }
+        if model.observation?.routeIPv4 != true { return "Подключи выбранный VPN и дождись подтверждения маршрута." }
         if model.filterStalled || model.observation?.filter != .healthy {
             return "Состояние фильтра PF не подтверждено. Открой экспертный режим для диагностики."
         }

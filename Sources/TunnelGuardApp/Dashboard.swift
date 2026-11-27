@@ -33,7 +33,7 @@ enum RouteStep: String, CaseIterable, Identifiable {
         switch self {
         case .apps: "Приложения"
         case .filter: "Фильтр"
-        case .vpn: "V2Pro"
+        case .vpn: "VPN"
         case .internet: "Интернет"
         }
     }
@@ -209,7 +209,7 @@ struct Dashboard: View {
         if model.desktopGateState != .installed { return "Запуск Claude требует настройки" }
         if model.observation == nil { return "Проверяем защиту" }
         if healthy, case .connected = model.networkState { return "Защищённый выход подтверждён" }
-        return healthy ? "V2Pro под наблюдением" : "Защита требует внимания"
+        return healthy ? "VPN под наблюдением" : "Защита требует внимания"
     }
 
     private var heroDetail: String {
@@ -217,9 +217,9 @@ struct Dashboard: View {
         if model.observation?.paused == true { return "Новые защищённые запуски заблокированы, пока доступ не восстановлен." }
         if model.desktopGateState == .off { return "Прямой запуск Claude доступен. Ограничь его в разделе «Настройки → Claude Desktop»." }
         if model.desktopGateState == .invalid { return "TunnelGuard не подтвердил системное ограничение. Проверь раздел «Настройки → Claude Desktop»." }
-        if model.observation == nil { return "Проверяем маршрут V2Pro и состояние службы PF." }
+        if model.observation == nil { return "Проверяем маршрут VPN и состояние службы PF." }
         if model.observation?.paused == nil { return "Состояние аварийной блокировки недоступно. Запуск приостановлен." }
-        return healthy ? "Система видит маршрут V2Pro. TunnelGuard проверит выход и фильтр перед открытием Claude." :
+        return healthy ? "Система видит маршрут VPN. TunnelGuard проверит выход и фильтр перед открытием Claude." :
             "Открой диагностику, чтобы проверить маршрут, настройки VPN и службу PF."
     }
 
@@ -265,7 +265,7 @@ struct Dashboard: View {
     private var stepDetail: String {
         switch routeStep {
         case .apps: "Claude Desktop использует выделенную группу PF, Claude Code — локальный HTTPS-прокси в песочнице."
-        case .filter: "PF ограничивает IPv4 интерфейсом V2Pro и блокирует IPv6 для Desktop. Песочница Code разрешает только порт прокси."
+        case .filter: "PF ограничивает IPv4 выбранным интерфейсом VPN и блокирует IPv6 для Desktop. Песочница Code разрешает только порт прокси."
         case .vpn: "Контрольный маршрут IPv4: \(routeDescription(model.observation?.routeIPv4)). Интерфейс: \(model.observation?.interface ?? "недоступен")."
         case .internet: "Проверка сверяет разрешённый IPv4 по двум источникам. Маршруты внутри VPN-клиента системному фильтру не видны."
         }
@@ -273,7 +273,7 @@ struct Dashboard: View {
 
     private var routeFacts: some View {
         panel("VPN и системный фильтр", icon: "network") {
-            fact("VPN-клиент", "V2Pro")
+            fact("VPN-клиент", model.observation?.vpnName ?? "Недоступен")
             fact("Интерфейс", model.observation?.interface ?? "Недоступен")
             fact("Контрольный IPv4", routeDescription(model.observation?.routeIPv4))
             fact("Контрольный IPv6", routeDescription(model.observation?.routeIPv6))
@@ -298,7 +298,8 @@ struct Dashboard: View {
                    status: model.desktopGateState == .installed ? model.status : "Ограничение запуска не подтверждено",
                    active: model.session != nil) {
                 if !model.filterConfigured {
-                    Button("Настроить PF", action: model.installFilter).disabled(model.operation != nil)
+                    Button("Настроить PF", action: model.installFilter)
+                        .disabled(model.operation != nil || model.hasSession || model.observation?.codeActive == true)
                 } else if model.addresses.isEmpty {
                     Button("Добавить IPv4") { model.section = .settings }
                 } else {
@@ -318,7 +319,7 @@ struct Dashboard: View {
             Divider()
             appRow("Claude Code", icon: "terminal", status: codeStatus, active: model.observation?.codeActive == true) {
                 Button("Запустить", action: model.launchCode)
-                    .disabled(model.paused || model.addresses.isEmpty || model.observation?.codeActive == true)
+                    .disabled(model.operation != nil || model.paused || model.addresses.isEmpty || model.observation?.codeActive == true)
             }
         }
     }
@@ -342,7 +343,7 @@ struct Dashboard: View {
 
     private func routeDescription(_ route: Bool?) -> String {
         switch route {
-        case true?: "Через V2Pro"
+        case true?: "Через выбранный VPN"
         case false?: "Не подтверждён"
         case nil: "Недоступен"
         }
@@ -352,7 +353,7 @@ struct Dashboard: View {
         VStack(alignment: .leading, spacing: 16) {
             routeFacts
             panel("Connection Doctor", icon: "stethoscope") {
-                Text("Совместимость проверяется для V2Pro. Отпечаток состоит из клиента, интерфейса и подтверждённого разрешённого IPv4.")
+                Text("Совместимость проверяется для выбранного VPN. Отпечаток состоит из клиента, интерфейса и подтверждённого разрешённого IPv4.")
                     .foregroundStyle(.secondary)
                 HStack {
                     Button("Проверить совместимость", action: { model.diagnose(.fingerprint) })
