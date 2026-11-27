@@ -32,6 +32,8 @@ jobs:
           cmake -S Windows -B winbuild -A x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build winbuild --config Release
+      - name: Check fail-closed VPN routes
+        run: python -B Tests/Windows/check_proxy_policy.py
       - name: Verify Windows packet filtering and rollback
         run: python -B Tests/Windows/check_wfp.py winbuild/Release/tunnelguard_wfp.dll winbuild/Release/tunnelguard_probe.exe
       - name: Package x64 application
@@ -46,7 +48,7 @@ jobs:
           Compress-Archive -Path dist/TunnelGuard -DestinationPath TunnelGuard-Windows-x64.zip
           $hash = (Get-FileHash TunnelGuard-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content TunnelGuard-Windows-x64.zip.sha256 "$hash  TunnelGuard-Windows-x64.zip" -Encoding ascii
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64ace1c802b6b5 # v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: TunnelGuard-Windows-x64
           path: |

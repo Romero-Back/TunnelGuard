@@ -244,10 +244,11 @@ class App(tk.Tk):
         for widget in (self.choose, self.detect, self.launch, self.lock, self.unlock):
             widget.configure(state="disabled")
         self.interrupt.configure(state="normal")
-        self.worker = threading.Thread(target=self.session, args=(executable, index, expected))
+        profile = self.settings.parent / "PreviewProfile"
+        self.worker = threading.Thread(target=self.session, args=(executable, index, expected, profile))
         self.worker.start()
 
-    def session(self, executable, index, expected):
+    def session(self, executable, index, expected, profile):
         process = wintypes.HANDLE()
         permit = wintypes.HANDLE()
         vpn = None
@@ -263,7 +264,7 @@ class App(tk.Tk):
                     port = server.server_address[1]
                     self.firewall.require(self.firewall.allow(str(executable), port, ctypes.byref(permit)),
                                           "Не удалось разрешить единственный порт прокси")
-                    args = [str(executable), f"--proxy-server=http://127.0.0.1:{port}",
+                    args = [str(executable), f"--user-data-dir={profile}", f"--proxy-server=http://127.0.0.1:{port}",
                             "--proxy-bypass-list=<-loopback>", "--disable-quic",
                             "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost"]
                     command = ctypes.create_unicode_buffer(subprocess.list2cmdline(args))
@@ -318,7 +319,19 @@ def main():
         app.withdraw()
         messagebox.showerror("TunnelGuard", "Запусти TunnelGuard с правами администратора для настройки Windows Filtering Platform.")
         return
-    app.mainloop()
+    firewall.kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    firewall.kernel.CreateMutexW.restype = wintypes.HANDLE
+    instance = firewall.kernel.CreateMutexW(None, False, "Local\\TunnelGuardWindowsPreview")
+    if not instance or ctypes.get_last_error() == 183:
+        if instance:
+            firewall.kernel.CloseHandle(instance)
+        app.withdraw()
+        messagebox.showerror("TunnelGuard", "Закрой другие экземпляры TunnelGuard, затем попробуй снова.")
+        return
+    try:
+        app.mainloop()
+    finally:
+        firewall.kernel.CloseHandle(instance)
 
 
 if __name__ == "__main__":
