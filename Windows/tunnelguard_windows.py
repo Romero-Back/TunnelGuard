@@ -178,6 +178,8 @@ class App(tk.Tk):
         actions.grid(row=6, columnspan=2, sticky="w")
         self.launch = ttk.Button(actions, text="Проверить и запустить", command=self.start)
         self.launch.pack(side="left")
+        self.check = ttk.Button(actions, text="Проверить сеть", command=self.check_network)
+        self.check.pack(side="left", padx=(8, 0))
         self.lock = ttk.Button(actions, text="Блокировать сеть", command=self.block)
         self.lock.pack(side="left", padx=8)
         self.interrupt = ttk.Button(actions, text="Остановить", command=self.stop.set, state="disabled")
@@ -226,30 +228,57 @@ class App(tk.Tk):
         except OSError as error:
             self.status.set(str(error))
 
+    def network_parameters(self):
+        try:
+            index = int(self.index.get())
+            expected = ipaddress.IPv4Address(self.expected.get().strip())
+        except ValueError:
+            raise ValueError("Нужны индекс интерфейса и разрешённый публичный IPv4.") from None
+        if index < 1 or index > 0xffffffff or not guard.public_address(expected):
+            raise ValueError("Нужны индекс интерфейса и разрешённый публичный IPv4.")
+        return index, expected
+
+    def begin(self, status, operation, arguments):
+        self.busy = True
+        self.stop.clear()
+        self.status.set(status)
+        for widget in (self.choose, self.detect, self.launch, self.check, self.lock, self.unlock):
+            widget.configure(state="disabled")
+        self.interrupt.configure(state="normal")
+        self.worker = threading.Thread(target=operation, args=arguments)
+        self.worker.start()
+
+    def check_network(self):
+        try:
+            settings = self.network_parameters()
+        except ValueError as error:
+            self.status.set(str(error))
+            return
+        self.begin("Проверяю маршрут и IPv4 без запуска Claude…", self.verify, settings)
+
+    def verify(self, index, expected):
+        try:
+            vpn = WindowsProxy(self.firewall, index, expected)
+            vpn.stopped = self.stop
+            vpn.preflight()
+            self.events.put(("status", "Выбранный маршрут и IPv4 подтверждены. Claude не запускался."))
+        except (OSError, subprocess.SubprocessError, ValueError):
+            self.events.put(("status", "Сетевая проверка не пройдена. Сверь VPN-интерфейс и разрешённый IPv4."))
+        finally:
+            self.events.put(("finished", ""))
+
     def start(self):
         try:
             executable = configured_executable(self.executable.get())
-            index = int(self.index.get())
-            expected = ipaddress.IPv4Address(self.expected.get().strip())
-            if index < 1 or index > 0xffffffff or not guard.public_address(expected):
-                raise ValueError()
+            index, expected = self.network_parameters()
             self.firewall.require(self.firewall.lock(str(executable)), "Не удалось записать блокировку WFP")
             self.save(executable)
-        except ValueError:
-            self.status.set("Нужны индекс интерфейса и разрешённый публичный IPv4.")
-            return
-        except (OSError, RuntimeError) as error:
+        except (OSError, ValueError, RuntimeError) as error:
             self.status.set(str(error))
             return
-        self.busy = True
-        self.stop.clear()
-        self.status.set("Выбранный файл заблокирован. Проверяю маршрут и IPv4…")
-        for widget in (self.choose, self.detect, self.launch, self.lock, self.unlock):
-            widget.configure(state="disabled")
-        self.interrupt.configure(state="normal")
         profile = self.settings.parent / "PreviewProfile"
-        self.worker = threading.Thread(target=self.session, args=(executable, index, expected, profile))
-        self.worker.start()
+        self.begin("Выбранный файл заблокирован. Проверяю маршрут и IPv4…",
+                   self.session, (executable, index, expected, profile))
 
     def session(self, executable, index, expected, profile):
         process = wintypes.HANDLE()
@@ -302,7 +331,7 @@ class App(tk.Tk):
                 self.status.set(text)
             else:
                 self.busy = False
-                for widget in (self.choose, self.detect, self.launch, self.lock, self.unlock):
+                for widget in (self.choose, self.detect, self.launch, self.check, self.lock, self.unlock):
                     widget.configure(state="normal")
                 self.interrupt.configure(state="disabled")
         self.after(100, self.poll)
